@@ -215,10 +215,10 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : studyData ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 pb-20 animate-in slide-in-from-bottom-12 duration-1000">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 pb-20">
             {/* Left Column: Summary & Vocab */}
             <div className="lg:col-span-2 space-y-12">
-              <section className={`p-10 md:p-12 rounded-[3.5rem] relative overflow-hidden transition-all duration-500 ${glassCardClass}`}>
+              <section className={`p-10 md:p-12 rounded-[3.5rem] relative overflow-hidden transition-all duration-500 animate-spring-up ${glassCardClass}`}>
                 <div className="flex items-center justify-between mb-10 relative z-10">
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl">
@@ -243,7 +243,7 @@ const App: React.FC = () => {
                 <div className={`absolute top-0 right-0 w-80 h-80 blur-[120px] -mr-40 -mt-40 transition-colors ${isDark ? 'bg-indigo-500/10' : 'bg-indigo-500/10'}`}></div>
               </section>
 
-              <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all duration-500 ${glassCardClass}`}>
+              <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all duration-500 animate-spring-up ${glassCardClass}`}>
                 <div className="flex items-center gap-5 mb-12">
                   <div className="p-3 bg-amber-500/20 text-amber-500 rounded-2xl">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -271,8 +271,8 @@ const App: React.FC = () => {
               </section>
             </div>
 
-            {/* Right Column: Quiz */}
-            <div className="lg:col-span-1 space-y-10">
+            {/* Right Column: Quiz with 0.2s stagger delay */}
+            <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
               <div className="sticky top-28">
                 <Quiz questions={studyData.quiz} theme={theme} />
                 
