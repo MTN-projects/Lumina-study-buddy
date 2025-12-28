@@ -1,9 +1,11 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { AppState, StudyData } from './types';
 import { processLectureNotes } from './services/geminiService';
 import { Button } from './components/Button';
 import { Quiz } from './components/Quiz';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -12,7 +14,9 @@ const App: React.FC = () => {
   const [studyData, setStudyData] = useState<StudyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const isDark = theme === 'dark';
 
@@ -43,6 +47,40 @@ const App: React.FC = () => {
       } catch (err) {
         console.error('Failed to copy text: ', err);
       }
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!studyData || !exportRef.current) return;
+    
+    setIsDownloading(true);
+    try {
+      const element = exportRef.current;
+      // Make it visible temporarily for html2canvas
+      element.style.display = 'block';
+      
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save('Lumina_Study_Guide.pdf');
+      
+      // Hide it back
+      element.style.display = 'none';
+    } catch (err) {
+      console.error('Failed to generate PDF: ', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -280,14 +318,31 @@ const App: React.FC = () => {
                   <div className="relative z-10">
                     <h4 className="font-black text-2xl mb-4 tracking-tight">Focus & Review</h4>
                     <p className="text-indigo-100 text-lg mb-8 leading-relaxed opacity-90">Ready for a fresh set of notes? Clear the current workspace and start again.</p>
-                    <Button 
-                      theme={theme}
-                      variant="outline" 
-                      className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl" 
-                      onClick={reset}
-                    >
-                      Process New Content
-                    </Button>
+                    <div className="space-y-4">
+                      <Button 
+                        theme={theme}
+                        variant="outline" 
+                        className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl" 
+                        onClick={reset}
+                      >
+                        Process New Content
+                      </Button>
+                      
+                      <Button 
+                        theme={theme}
+                        variant="primary" 
+                        className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                        onClick={handleDownloadPDF}
+                        isLoading={isDownloading}
+                      >
+                        {!isDownloading && (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        )}
+                        Export to PDF
+                      </Button>
+                    </div>
                   </div>
                   <div className="absolute top-0 right-0 -mr-20 -mt-20 w-56 h-56 bg-white/10 rounded-full blur-3xl transition-transform group-hover:scale-150 duration-[2000ms]"></div>
                   <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-40 h-40 bg-indigo-400/20 rounded-full blur-2xl"></div>
@@ -301,6 +356,57 @@ const App: React.FC = () => {
           </div>
         ) : null}
       </main>
+
+      {/* Hidden PDF Export Template (Clean Black & White) */}
+      <div 
+        ref={exportRef} 
+        style={{ 
+          display: 'none', 
+          width: '800px', 
+          padding: '40px', 
+          backgroundColor: '#ffffff', 
+          color: '#000000',
+          fontFamily: 'Inter, sans-serif'
+        }}
+      >
+        <div style={{ borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}>
+          <h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800' }}>STUDY GUIDE</h1>
+          <p style={{ margin: '5px 0 0', opacity: 0.6, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px' }}>Generated by Lumina</p>
+        </div>
+        
+        <div style={{ marginBottom: '40px' }}>
+          <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2>
+          <p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>{studyData?.summary}</p>
+        </div>
+
+        <div style={{ marginBottom: '40px' }}>
+          <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>
+          {studyData?.vocabulary.map((v, i) => (
+            <div key={i} style={{ marginBottom: '15px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div>
+              <div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>PRACTICE QUESTIONS</h2>
+          {studyData?.quiz.map((q, i) => (
+            <div key={i} style={{ marginBottom: '20px' }}>
+              <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>
+              {q.options.map((opt, optI) => (
+                <div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>
+                  [{String.fromCharCode(65 + optI)}] {opt}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid #eee', textAlign: 'center', fontSize: '10px', color: '#999' }}>
+          LUMINA STUDY BUDDY • PRINTED ON {new Date().toLocaleDateString()}
+        </div>
+      </div>
     </div>
   );
 };
