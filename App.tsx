@@ -75,19 +75,17 @@ const App: React.FC = () => {
     : "bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl";
 
   return (
-    <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-x-hidden bg-transparent ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+    <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* 1. Base Background Color Layer (Lower than orbs) */}
-      <div className={`fixed inset-0 -z-20 transition-colors duration-700 ${isDark ? 'bg-[#0a0a0c]' : 'bg-slate-50'}`} />
+      {/* Background Ambient Glows */}
+      {isDark && (
+        <>
+          <div className="glow-orb animate-float fixed top-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none -z-10" />
+          <div className="glow-orb animate-float-delayed fixed bottom-[-10%] right-[-5%] w-[600px] h-[600px] bg-indigo-600/20 rounded-full blur-[120px] pointer-events-none -z-10" />
+        </>
+      )}
 
-      {/* 2. Background Orb Layer (Above base color, below content) */}
-      <div className="fixed top-0 left-0 w-screen h-screen -z-10 pointer-events-none overflow-hidden">
-        {/* Debug Mode: Bright Red, No Blur */}
-        <div className={`glow-orb animate-float absolute top-[-5%] left-[-5%] w-[400px] h-[400px] rounded-full transition-all duration-700 bg-red-600 blur-none opacity-100`} />
-        <div className={`glow-orb animate-float-delayed absolute bottom-[-5%] right-[-5%] w-[500px] h-[500px] rounded-full transition-all duration-700 bg-red-600 blur-none opacity-100`} />
-      </div>
-
-      {/* 3. Main Content Layer (Above everything) */}
+      {/* Header */}
       <header className={`backdrop-blur-2xl border-b sticky top-0 z-30 transition-all duration-500 ${isDark ? 'bg-black/40 border-white/5' : 'bg-white/70 border-slate-200'}`}>
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -116,6 +114,7 @@ const App: React.FC = () => {
               )}
             </button>
 
+            {/* Functional New Session Button */}
             {(state !== AppState.IDLE || notes.trim().length > 0) && (
               <Button 
                 theme={theme} 
@@ -272,6 +271,7 @@ const App: React.FC = () => {
               </section>
             </div>
 
+            {/* Right Column: Quiz with 0.2s stagger delay */}
             <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
               <div className="sticky top-28">
                 <Quiz questions={studyData.quiz} theme={theme} />
