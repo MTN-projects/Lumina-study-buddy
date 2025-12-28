@@ -4,6 +4,7 @@ import React from 'react';
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
   isLoading?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 export const Button: React.FC<ButtonProps> = ({ 
@@ -11,15 +12,24 @@ export const Button: React.FC<ButtonProps> = ({
   variant = 'primary', 
   isLoading, 
   className = '', 
+  theme = 'dark',
   ...props 
 }) => {
   const baseStyles = "px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-sm";
   
+  const isDark = theme === 'dark';
+
   const variants = {
-    primary: "bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/20 active:scale-95",
-    secondary: "bg-zinc-800 text-indigo-400 hover:bg-zinc-700 border border-zinc-700",
-    outline: "border-2 border-zinc-700 text-zinc-300 hover:border-indigo-500 hover:text-indigo-400 active:scale-95",
-    ghost: "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+    primary: "bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20 active:scale-95",
+    secondary: isDark 
+      ? "bg-zinc-800 text-indigo-400 hover:bg-zinc-700 border border-zinc-700" 
+      : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-100",
+    outline: isDark 
+      ? "border-2 border-zinc-700 text-zinc-300 hover:border-indigo-500 hover:text-indigo-400 active:scale-95" 
+      : "border-2 border-slate-200 text-slate-600 hover:border-indigo-600 hover:text-indigo-600 active:scale-95",
+    ghost: isDark 
+      ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" 
+      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
   };
 
   return (
