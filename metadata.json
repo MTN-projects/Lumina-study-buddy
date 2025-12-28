@@ -1,0 +1,5 @@
+{
+  "name": "Lumina Study Buddy",
+  "description": "An intelligent student companion that transforms lecture notes into concise summaries, vocabulary lists, and interactive practice quizzes using Gemini AI.",
+  "requestFramePermissions": []
+}
