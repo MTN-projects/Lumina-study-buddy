@@ -34,11 +34,15 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
     return selectedAnswers[idx] === q.correctAnswerIndex ? acc + 1 : acc;
   }, 0);
 
+  const glassClass = isDark 
+    ? "bg-zinc-900/60 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/40" 
+    : "bg-white/80 backdrop-blur-xl border border-slate-200 shadow-xl shadow-slate-200/50";
+
   if (showResults) {
     return (
-      <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-slate-200'} p-6 rounded-2xl border text-center shadow-2xl transition-colors`}>
+      <div className={`${glassClass} p-6 rounded-[2rem] text-center transition-all duration-300`}>
         <div className="mb-4">
-          <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-2">
+          <div className="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -47,9 +51,9 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
           <p className={`${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>You scored {score} out of {questions.length}</p>
         </div>
         
-        <div className="space-y-4 mb-6 text-left max-h-[400px] overflow-y-auto pr-2">
+        <div className="space-y-4 mb-6 text-left max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
           {questions.map((q, idx) => (
-            <div key={idx} className={`p-4 rounded-lg ${isDark ? 'bg-zinc-800/50 border-zinc-700/50' : 'bg-slate-50 border-slate-100'} border`}>
+            <div key={idx} className={`p-4 rounded-2xl ${isDark ? 'bg-zinc-800/40 border-white/5' : 'bg-slate-50 border-slate-100'} border`}>
               <p className={`font-medium ${isDark ? 'text-zinc-200' : 'text-slate-700'} mb-2`}>{idx + 1}. {q.question}</p>
               <p className={`text-sm ${selectedAnswers[idx] === q.correctAnswerIndex ? 'text-green-500' : 'text-rose-500'}`}>
                 Your answer: {q.options[selectedAnswers[idx]] || 'No answer'}
@@ -61,7 +65,7 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
           ))}
         </div>
 
-        <Button theme={theme} className="w-full" onClick={() => {
+        <Button theme={theme} className="w-full rounded-2xl" onClick={() => {
           setShowResults(false);
           setCurrentQuestionIndex(0);
           setSelectedAnswers({});
@@ -73,11 +77,11 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
   }
 
   return (
-    <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-slate-200'} p-6 rounded-2xl border shadow-2xl transition-colors`}>
+    <div className={`${glassClass} p-6 rounded-[2.5rem] shadow-2xl transition-all duration-300`}>
       <div className="flex justify-between items-center mb-6">
         <h3 className={`text-lg font-bold ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>Practice Quiz</h3>
-        <span className={`text-xs font-medium ${isDark ? 'text-zinc-500 bg-zinc-800' : 'text-slate-400 bg-slate-100'} px-2 py-1 rounded-md`}>
-          Q{currentQuestionIndex + 1} of {questions.length}
+        <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-zinc-500 bg-white/5' : 'text-slate-400 bg-slate-100'} px-2.5 py-1 rounded-full`}>
+          Q{currentQuestionIndex + 1} OF {questions.length}
         </span>
       </div>
 
@@ -88,17 +92,17 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
             <button
               key={idx}
               onClick={() => handleSelectOption(idx)}
-              className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 active:scale-[0.99] ${
+              className={`w-full p-4 text-left rounded-2xl border transition-all duration-300 active:scale-[0.98] ${
                 selectedAnswers[currentQuestionIndex] === idx
-                  ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                  ? 'border-indigo-500 bg-indigo-500/20 text-indigo-400'
                   : isDark 
-                    ? 'border-zinc-800 hover:border-zinc-700 bg-zinc-800/30 text-zinc-400 hover:text-zinc-200'
+                    ? 'border-white/5 hover:border-white/10 bg-white/5 text-zinc-400 hover:text-zinc-200'
                     : 'border-slate-100 hover:border-slate-200 bg-slate-50/50 text-slate-600 hover:text-slate-900'
               }`}
             >
               <span className="flex items-center gap-3">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center border text-xs ${
-                   selectedAnswers[currentQuestionIndex] === idx ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-zinc-700 text-zinc-500'
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${
+                   selectedAnswers[currentQuestionIndex] === idx ? 'bg-indigo-500 border-indigo-500 text-white' : (isDark ? 'border-zinc-700 text-zinc-500' : 'border-slate-200 text-slate-400')
                 }`}>
                   {String.fromCharCode(65 + idx)}
                 </span>
@@ -114,9 +118,9 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
           theme={theme}
           disabled={selectedAnswers[currentQuestionIndex] === undefined} 
           onClick={handleNext}
-          className="w-full sm:w-auto"
+          className="w-full rounded-2xl py-4"
         >
-          {isLastQuestion ? 'Finish' : 'Next Question'}
+          {isLastQuestion ? 'Finish Quiz' : 'Next Question'}
         </Button>
       </div>
     </div>
