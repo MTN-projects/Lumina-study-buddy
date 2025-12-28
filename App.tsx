@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { AppState, StudyData } from './types';
 import { processLectureNotes } from './services/geminiService';
@@ -15,27 +14,13 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const exportRef = useRef<HTMLDivElement>(null);
 
   const isDark = theme === 'dark';
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      setNotes(content);
-      setError(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    reader.readAsText(file);
   };
 
   const handleCopySummary = async () => {
@@ -56,7 +41,6 @@ const App: React.FC = () => {
     setIsDownloading(true);
     try {
       const element = exportRef.current;
-      // Make it visible temporarily for html2canvas
       element.style.display = 'block';
       
       const canvas = await html2canvas(element, {
@@ -74,7 +58,6 @@ const App: React.FC = () => {
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       pdf.save('Lumina_Study_Guide.pdf');
       
-      // Hide it back
       element.style.display = 'none';
     } catch (err) {
       console.error('Failed to generate PDF: ', err);
@@ -105,7 +88,6 @@ const App: React.FC = () => {
     setNotes('');
     setStudyData(null);
     setError(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const glassCardClass = isDark 
@@ -115,7 +97,6 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* Background Ambient Glows */}
       {isDark && (
         <>
           <div className="glow-orb animate-float fixed top-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -152,7 +133,6 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {/* Functional New Session Button */}
             {(state !== AppState.IDLE || notes.trim().length > 0) && (
               <Button 
                 theme={theme} 
@@ -191,35 +171,10 @@ const App: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center gap-8">
-                <div className={`flex-1 h-px ${isDark ? 'bg-white/5' : 'bg-slate-100'}`}></div>
-                <span className={`text-[10px] font-black uppercase tracking-[0.3em] transition-colors ${isDark ? 'text-zinc-600' : 'text-slate-300'}`}>alternative</span>
-                <div className={`flex-1 h-px ${isDark ? 'bg-white/5' : 'bg-slate-100'}`}></div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-5">
+              <div className="flex justify-center">
                 <Button 
                   theme={theme}
-                  variant="outline" 
-                  className="flex-1 py-5 text-base rounded-2xl"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  Select Document
-                </Button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  accept=".txt" 
-                  onChange={handleFileUpload}
-                />
-                
-                <Button 
-                  theme={theme}
-                  className="flex-1 py-5 text-base rounded-2xl bg-indigo-600 hover:bg-indigo-500" 
+                  className="w-full max-w-md py-5 text-lg rounded-2xl bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/30 font-bold" 
                   onClick={handleSubmit}
                   disabled={!notes.trim()}
                 >
@@ -309,7 +264,7 @@ const App: React.FC = () => {
               </section>
             </div>
 
-            {/* Right Column: Quiz with 0.2s stagger delay */}
+            {/* Right Column: Quiz */}
             <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
               <div className="sticky top-28">
                 <Quiz questions={studyData.quiz} theme={theme} />
@@ -325,13 +280,13 @@ const App: React.FC = () => {
                         className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl" 
                         onClick={reset}
                       >
-                        Process New Content
+                        New Session
                       </Button>
                       
                       <Button 
                         theme={theme}
                         variant="primary" 
-                        className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                        className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-black/20"
                         onClick={handleDownloadPDF}
                         isLoading={isDownloading}
                       >
@@ -340,7 +295,7 @@ const App: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         )}
-                        Export to PDF
+                        Export Study Guide
                       </Button>
                     </div>
                   </div>
@@ -349,7 +304,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="mt-8 flex justify-center">
-                  <p className={`text-[11px] font-black uppercase tracking-[0.4em] transition-colors ${isDark ? 'text-zinc-700' : 'text-slate-300'}`}>Powered by Gemini 2.0</p>
+                  <p className={`text-[11px] font-black uppercase tracking-[0.4em] transition-colors ${isDark ? 'text-zinc-700' : 'text-slate-300'}`}>Powered by Gemini 3.0</p>
                 </div>
               </div>
             </div>
@@ -357,7 +312,7 @@ const App: React.FC = () => {
         ) : null}
       </main>
 
-      {/* Hidden PDF Export Template (Clean Black & White) */}
+      {/* Hidden PDF Export Template */}
       <div 
         ref={exportRef} 
         style={{ 
