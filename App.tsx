@@ -394,6 +394,21 @@ const App: React.FC = () => {
     ? "bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl" 
     : "bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl";
 
+  // Dynamic Button Label Logic
+  const getPremiumLabel = () => {
+    if (activeMode !== 'premium') return 'PREMIUM VOICE';
+    if (playbackState === 'playing') return 'PAUSE';
+    if (playbackState === 'paused') return 'RESUME';
+    return 'PREMIUM VOICE';
+  };
+
+  const getActiveLabel = () => {
+    if (activeMode !== 'active') return 'ACTIVE READER';
+    if (playbackState === 'playing') return 'PAUSE';
+    if (playbackState === 'paused') return 'RESUME';
+    return 'ACTIVE READER';
+  };
+
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
       
@@ -587,7 +602,7 @@ const App: React.FC = () => {
                               </svg>
                             )
                           )}
-                          <span className="hidden sm:inline">{activeMode === 'premium' && playbackState === 'paused' ? 'Resume' : 'Premium'}</span>
+                          <span className="hidden sm:inline tracking-widest">{getPremiumLabel()}</span>
                         </button>
                         
                         {activeMode === 'premium' && (
@@ -622,7 +637,7 @@ const App: React.FC = () => {
                               <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                             </svg>
                           )}
-                          <span className="hidden sm:inline">{activeMode === 'active' && playbackState === 'paused' ? 'Resume' : 'Reader'}</span>
+                          <span className="hidden sm:inline tracking-widest">{getActiveLabel()}</span>
                         </button>
 
                         {activeMode === 'active' && (
