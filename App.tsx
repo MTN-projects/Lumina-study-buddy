@@ -38,6 +38,11 @@ async function decodeAudioData(
 
 type PlaybackMode = 'premium' | 'active' | 'none';
 
+interface Toast {
+  message: string;
+  type: 'info' | 'error' | 'success';
+}
+
 const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [state, setState] = useState<AppState>(AppState.IDLE);
@@ -69,6 +74,9 @@ const App: React.FC = () => {
   const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
+  const [isPremiumLocked, setIsPremiumLocked] = useState(true);
+  const [isPremiumUnavailable, setIsPremiumUnavailable] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
   
   // Active Reader (Karaoke) State
   const [currentWordIndex, setCurrentWordIndex] = useState<number | null>(null);
@@ -94,6 +102,35 @@ const App: React.FC = () => {
       }
     }
   }, []);
+
+  // Background logic for Smart Lock (Voice System Availability)
+  useEffect(() => {
+    const checkVoices = () => {
+      const synth = window.speechSynthesis;
+      const voices = synth.getVoices();
+      const hasPremiumLocal = voices.some(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
+      
+      // Premium Voice unlocks when both the prefetched high-quality audio AND the system voice list is populated
+      if (hasPremiumLocal && prefetchedBuffer && !isPremiumUnavailable) {
+        setIsPremiumLocked(false);
+      }
+    };
+
+    window.speechSynthesis.onvoiceschanged = checkVoices;
+    checkVoices(); // Initial check
+
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, [prefetchedBuffer, isPremiumUnavailable]);
+
+  // Toast timeout
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Persistence Helper
   const saveSessionToHistory = (data: StudyData, originalNotes: string, fileName: string) => {
@@ -167,6 +204,8 @@ const App: React.FC = () => {
   }, [studyData?.summary]);
 
   const prefetchAudio = async (text: string) => {
+    setIsPremiumLocked(true);
+    setIsPremiumUnavailable(false);
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -175,8 +214,16 @@ const App: React.FC = () => {
       const audioData = decode(base64);
       const buffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
       setPrefetchedBuffer(buffer);
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Background TTS pre-fetch failed:", err);
+      // Detect 429 Errors
+      if (err?.message?.includes('429') || err?.status === 429 || err?.message?.toLowerCase().includes('quota')) {
+        setIsPremiumUnavailable(true);
+        setIsPremiumLocked(false);
+        setToast({ message: 'Cloud voice is at capacity. Switching to local Active Reader mode.', type: 'info' });
+        // Auto-fallback to Active Reader
+        setTimeout(() => toggleActiveReader(), 500);
+      }
     }
   };
 
@@ -224,6 +271,7 @@ const App: React.FC = () => {
   };
 
   const togglePremiumVoice = async () => {
+    if (isPremiumLocked || isPremiumUnavailable) return;
     if (activeMode === 'active') stopAllPlayback();
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (!audioContextRef.current) audioContextRef.current = ctx;
@@ -259,8 +307,14 @@ const App: React.FC = () => {
       const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
       setPrefetchedBuffer(audioBuffer);
       playFromBuffer(audioBuffer, 0);
-    } catch (err) {
-      setError("Failed to generate premium audio.");
+    } catch (err: any) {
+      if (err?.message?.includes('429') || err?.status === 429) {
+        setIsPremiumUnavailable(true);
+        setToast({ message: 'Cloud voice is at capacity. Switching to local Active Reader mode.', type: 'info' });
+        toggleActiveReader();
+      } else {
+        setError("Failed to generate premium audio.");
+      }
       setActiveMode('none');
     } finally { setIsAudioLoading(false); }
   };
@@ -436,6 +490,8 @@ const App: React.FC = () => {
     setState(AppState.LOADING);
     setError(null);
     setPrefetchedBuffer(null);
+    setIsPremiumLocked(true);
+    setIsPremiumUnavailable(false);
     setChatMessages([]);
     stopAllPlayback();
     try {
@@ -470,6 +526,8 @@ const App: React.FC = () => {
     setError(null);
     setChatMessages([]);
     setPrefetchedBuffer(null);
+    setIsPremiumLocked(true);
+    setIsPremiumUnavailable(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -478,6 +536,8 @@ const App: React.FC = () => {
     : "bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl";
 
   const getPremiumLabel = () => {
+    if (isPremiumUnavailable) return 'Cloud Unavailable';
+    if (isPremiumLocked) return '✨ Tuning Voice...';
     if (activeMode !== 'premium') return 'PREMIUM VOICE';
     return playbackState === 'playing' ? 'PAUSE' : 'RESUME';
   };
@@ -552,6 +612,19 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
       
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] animate-spring-up">
+          <div className={`px-6 py-3 rounded-full backdrop-blur-3xl border shadow-2xl flex items-center gap-3 font-bold text-sm ${isDark ? 'bg-indigo-950/80 border-indigo-500/30 text-indigo-100' : 'bg-white/90 border-indigo-200 text-indigo-900'}`}>
+             <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+             {toast.message}
+             <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100 transition-opacity">
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" /></svg>
+             </button>
+          </div>
+        </div>
+      )}
+
       {/* Enhanced Sidebar Component */}
       <aside 
         onClick={() => setActiveMenuId(null)}
@@ -670,8 +743,14 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="flex items-center gap-2 p-1 bg-black/10 rounded-2xl border border-white/5 backdrop-blur-md">
-                        <button onClick={togglePremiumVoice} disabled={isAudioLoading} className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase ${activeMode === 'premium' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}>
-                          {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' && activeMode === 'premium' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>)}
+                        <button 
+                          onClick={togglePremiumVoice} 
+                          disabled={isAudioLoading || isPremiumLocked || isPremiumUnavailable} 
+                          title={isPremiumUnavailable ? 'Cloud voice is at capacity' : (isPremiumLocked ? 'Connecting to high-quality voice...' : '')}
+                          className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${isPremiumUnavailable ? 'bg-zinc-800 text-zinc-500 opacity-70 cursor-not-allowed' : (isPremiumLocked ? 'opacity-50 cursor-not-allowed bg-zinc-800' : (activeMode === 'premium' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'))}`}
+                        >
+                          {isPremiumLocked && !isPremiumUnavailable && <div className="absolute inset-0 animate-shimmer pointer-events-none opacity-40"></div>}
+                          {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' && activeMode === 'premium' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : (isPremiumUnavailable ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>))}
                           <span>{getPremiumLabel()}</span>
                         </button>
                         {activeMode === 'premium' && (
