@@ -2,16 +2,38 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { StudyData } from "../types";
 
-export const processLectureNotes = async (content: string): Promise<StudyData> => {
+export interface FileData {
+  data: string;
+  mimeType: string;
+}
+
+export const processLectureNotes = async (content: string, fileData?: FileData): Promise<StudyData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
+  const textPart = {
+    text: `You are an advanced academic assistant with PhD-level reasoning capabilities. 
+    Analyze the provided lecture material (text and/or document) deeply to:
+    1. Summarize the main argument and core concepts with academic rigor.
+    2. Extract exactly 5 of the most important technical terms used in the material.
+    3. Generate 3 challenging multiple-choice questions to test comprehension of these concepts.
+
+    ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
+  };
+
+  const parts: any[] = [textPart];
+  
+  if (fileData) {
+    parts.push({
+      inlineData: {
+        data: fileData.data,
+        mimeType: fileData.mimeType
+      }
+    });
+  }
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Analyze the following lecture notes and generate a structured study guide. 
-    Notes Content:
-    ---
-    ${content}
-    ---`,
+    contents: { parts },
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -19,7 +41,7 @@ export const processLectureNotes = async (content: string): Promise<StudyData> =
         properties: {
           summary: {
             type: Type.STRING,
-            description: "A concise summary of the lecture notes (approx 150-200 words).",
+            description: "A high-level synthesis of the lecture's main argument and primary concepts (approx 150-200 words).",
           },
           vocabulary: {
             type: Type.ARRAY,
@@ -31,7 +53,7 @@ export const processLectureNotes = async (content: string): Promise<StudyData> =
               },
               required: ["word", "definition"]
             },
-            description: "A list of exactly 5 key vocabulary terms and their definitions.",
+            description: "The top 5 most critical technical terms identified from the notes.",
           },
           quiz: {
             type: Type.ARRAY,
@@ -47,7 +69,7 @@ export const processLectureNotes = async (content: string): Promise<StudyData> =
               },
               required: ["question", "options", "correctAnswerIndex"]
             },
-            description: "3 multiple-choice practice questions based on the content.",
+            description: "3 practice questions that require critical thinking based on the provided text.",
           }
         },
         required: ["summary", "vocabulary", "quiz"]

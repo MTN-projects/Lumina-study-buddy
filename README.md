@@ -1,19 +1,20 @@
-# Lumina Study Buddy 🌟
-**AI-Powered Academic Assistant for Global Students**
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-Lumina is a specialized study tool designed to transform lecture notes into structured study materials. Built with a focus on accessibility and multi-modal learning, it leverages the power of Gemini 3 Flash to help students save time and improve retention.
+# Run and deploy your AI Studio app
 
-### 🚀 Key Features
-* **AI Study Guide Generation:** Automatically creates summaries, key terminology, and interactive quizzes from pasted text.
-* **Multilingual Support:** Natively supports processing and generating content in **Arabic, French, and English**.
-* **Export to PDF:** Download your study guides instantly for offline review or printing.
-* **Aesthetic Night UI:** Features a custom "Starry Night" theme with a seamless Light/Dark mode toggle.
+This contains everything you need to run your app locally.
 
-### 🛠️ Tech Stack
-* **Framework:** React (Vite)
-* **AI Engine:** Google Gemini 3 Flash API
-* **Styling:** Tailwind CSS
-* **Libraries:** jsPDF, html2canvas (for PDF generation)
+View your app in AI Studio: https://ai.studio/apps/drive/1DmywYjOT67gYDQqXSqfoLyS6nZK231oP
 
----
-*Built as a professional portfolio project to demonstrate AI integration and modern web development.*
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

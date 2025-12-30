@@ -1,6 +1,7 @@
+
 import React, { useState, useRef } from 'react';
 import { AppState, StudyData } from './types';
-import { processLectureNotes } from './services/geminiService';
+import { processLectureNotes, FileData } from './services/geminiService';
 import { Button } from './components/Button';
 import { Quiz } from './components/Quiz';
 import { jsPDF } from 'jspdf';
@@ -10,17 +11,42 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [state, setState] = useState<AppState>(AppState.IDLE);
   const [notes, setNotes] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<{ name: string; base64: string; mimeType: string } | null>(null);
   const [studyData, setStudyData] = useState<StudyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
   const exportRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDark = theme === 'dark';
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      setError("Please select a PDF file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64String = (reader.result as string).split(',')[1];
+      setSelectedFile({
+        name: file.name,
+        base64: base64String,
+        mimeType: file.type
+      });
+      setError(null);
+    };
+    reader.onerror = () => setError("Failed to read file.");
+    reader.readAsDataURL(file);
   };
 
   const handleCopySummary = async () => {
@@ -68,17 +94,22 @@ const App: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!notes.trim()) return;
+    if (!notes.trim() && !selectedFile) return;
     
     setState(AppState.LOADING);
     setError(null);
     try {
-      const data = await processLectureNotes(notes);
+      const fileData: FileData | undefined = selectedFile ? {
+        data: selectedFile.base64,
+        mimeType: selectedFile.mimeType
+      } : undefined;
+
+      const data = await processLectureNotes(notes, fileData);
       setStudyData(data);
       setState(AppState.SUCCESS);
     } catch (err) {
       console.error(err);
-      setError("An error occurred while processing your notes. Please try again.");
+      setError("An error occurred while processing your material. Please ensure your notes or PDF content are valid.");
       setState(AppState.ERROR);
     }
   };
@@ -86,8 +117,10 @@ const App: React.FC = () => {
   const reset = () => {
     setState(AppState.IDLE);
     setNotes('');
+    setSelectedFile(null);
     setStudyData(null);
     setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const glassCardClass = isDark 
@@ -133,7 +166,7 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {(state !== AppState.IDLE || notes.trim().length > 0) && (
+            {(state !== AppState.IDLE || notes.trim().length > 0 || selectedFile) && (
               <Button 
                 theme={theme} 
                 variant="ghost" 
@@ -160,9 +193,24 @@ const App: React.FC = () => {
 
             <div className={`p-10 rounded-[3rem] shadow-2xl space-y-10 transition-all duration-500 ${glassCardClass}`}>
               <div className="space-y-4">
-                <label className={`block text-xs font-black uppercase tracking-[0.2em] ml-1 transition-colors ${isDark ? 'text-zinc-500' : 'text-slate-500'}`}>
-                  Input your notes
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className={`block text-xs font-black uppercase tracking-[0.2em] ml-1 transition-colors ${isDark ? 'text-zinc-500' : 'text-slate-500'}`}>
+                    Input your notes or upload a PDF
+                  </label>
+                  {selectedFile && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full animate-in fade-in slide-in-from-right-2">
+                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-[10px] font-bold text-indigo-400 uppercase truncate max-w-[150px]">{selectedFile.name}</span>
+                      <button onClick={() => setSelectedFile(null)} className="text-indigo-400 hover:text-white transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <textarea
                   className={`w-full h-64 p-8 border rounded-[2rem] focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all outline-none resize-none text-lg leading-relaxed ${isDark ? 'bg-black/30 border-white/5 text-zinc-100 placeholder-zinc-700' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'}`}
                   placeholder="Paste your content here..."
@@ -171,12 +219,31 @@ const App: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-center">
+              <div className="flex flex-col sm:flex-row gap-4 justify-center items-stretch">
+                <input 
+                  type="file" 
+                  accept="application/pdf" 
+                  ref={fileInputRef} 
+                  onChange={handleFileChange} 
+                  className="hidden" 
+                />
                 <Button 
                   theme={theme}
-                  className="w-full max-w-md py-5 text-lg rounded-2xl bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/30 font-bold" 
+                  variant="outline"
+                  className="w-full sm:max-w-[200px] py-5 text-lg rounded-2xl border-indigo-600/30 text-indigo-400 hover:bg-indigo-500/5"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  Upload PDF
+                </Button>
+
+                <Button 
+                  theme={theme}
+                  className="w-full sm:max-w-md py-5 text-lg rounded-2xl bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/30 font-bold" 
                   onClick={handleSubmit}
-                  disabled={!notes.trim()}
+                  disabled={!notes.trim() && !selectedFile}
                 >
                   Generate Study Guide
                 </Button>
