@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { StudyData } from "../types";
+import { StudyData, ChatMessage } from "../types";
 
 export interface FileData {
   data: string;
@@ -99,4 +99,56 @@ export const generateSpeech = async (text: string): Promise<string> => {
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Audio) throw new Error("Audio generation failed.");
   return base64Audio;
+};
+
+export const askQuestionAboutDocumentStream = async (
+  question: string,
+  history: ChatMessage[],
+  contextText: string,
+  contextFile?: FileData
+) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const systemInstruction = `You are Lumina, a helpful and precise study assistant. 
+  Answer questions based ONLY on the provided document content. 
+  If the answer is not in the document, politely state that you can't find that information. 
+  Keep answers clear, concise, and academically focused.`;
+
+  const promptParts: any[] = [];
+  
+  if (history.length === 0) {
+    promptParts.push({ text: `Context Material:\n${contextText}` });
+    if (contextFile) {
+      promptParts.push({
+        inlineData: {
+          data: contextFile.data,
+          mimeType: contextFile.mimeType
+        }
+      });
+    }
+    promptParts.push({ text: `User Question: ${question}` });
+  } else {
+    promptParts.push({ text: question });
+  }
+
+  const contents = [
+    ...history.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    })),
+    {
+      role: 'user',
+      parts: promptParts
+    }
+  ];
+
+  const response = await ai.models.generateContentStream({
+    model: "gemini-3-flash-preview",
+    contents: contents,
+    config: {
+      systemInstruction
+    }
+  });
+
+  return response;
 };

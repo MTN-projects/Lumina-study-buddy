@@ -43,6 +43,53 @@
             }
         }
 
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        @keyframes messageSlideIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes dotBounce {
+          0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes inputPulse {
+          0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+          70% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+        }
+
+        .animate-shimmer {
+            background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        .animate-message {
+          animation: messageSlideIn 0.4s ease-out forwards;
+        }
+
+        .typing-dot {
+          width: 8px;
+          height: 8px;
+          background: #8b5cf6;
+          border-radius: 50%;
+          display: inline-block;
+          animation: dotBounce 1.4s infinite ease-in-out both;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        .input-glow-pulse:focus {
+          animation: inputPulse 2s infinite;
+        }
+
         .animate-vocab {
             animation: vocabPop 0.5s ease-out forwards;
             opacity: 0;
@@ -99,6 +146,10 @@
         }
         ::-webkit-scrollbar-thumb:hover {
             background: #555;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
         }
     </style>
 <script type="importmap">

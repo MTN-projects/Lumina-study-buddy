@@ -1,4 +1,3 @@
-
 export interface VocabularyItem {
   word: string;
   definition: string;
@@ -14,6 +13,11 @@ export interface StudyData {
   summary: string;
   vocabulary: VocabularyItem[];
   quiz: QuizQuestion[];
+}
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  content: string;
 }
 
 export enum AppState {
