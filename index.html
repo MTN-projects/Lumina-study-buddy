@@ -53,6 +53,11 @@
           to { opacity: 1; transform: translateY(0); }
         }
 
+        @keyframes blockSlideUp {
+          from { opacity: 0; transform: translateY(15px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
         @keyframes dotBounce {
           0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
           40% { transform: scale(1); opacity: 1; }
@@ -72,6 +77,11 @@
 
         .animate-message {
           animation: messageSlideIn 0.4s ease-out forwards;
+        }
+
+        .waterfall-block {
+          opacity: 0;
+          animation: blockSlideUp 0.5s ease-out forwards;
         }
 
         .typing-dot {

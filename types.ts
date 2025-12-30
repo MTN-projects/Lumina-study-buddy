@@ -20,6 +20,15 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface StudySession {
+  id: string;
+  timestamp: number;
+  fileName: string;
+  studyData: StudyData;
+  chatMessages: ChatMessage[];
+  originalNotes: string;
+}
+
 export enum AppState {
   IDLE = 'IDLE',
   LOADING = 'LOADING',
