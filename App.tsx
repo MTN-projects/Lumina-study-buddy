@@ -56,6 +56,7 @@ const App: React.FC = () => {
   // Sidebar & History State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [savedSessions, setSavedSessions] = useState<StudySession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -64,7 +65,7 @@ const App: React.FC = () => {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Chat State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -140,18 +141,25 @@ const App: React.FC = () => {
       fileName: fileName || "Untitled Note",
       title: data.title || "AI Generated Study Guide",
       studyData: data,
-      chatMessages: [],
+      chatLog: [],
       originalNotes: originalNotes,
       isPinned: false
     };
     const updatedSessions = [newSession, ...savedSessions];
     setSavedSessions(updatedSessions);
+    setActiveSessionId(newSession.id);
     localStorage.setItem('lumina_history_v2', JSON.stringify(updatedSessions));
   };
 
   const updateHistory = (updated: StudySession[]) => {
     setSavedSessions(updated);
     localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+  };
+
+  const updateChatLogPersistence = (messages: ChatMessage[]) => {
+    if (!activeSessionId) return;
+    const updated = savedSessions.map(s => s.id === activeSessionId ? { ...s, chatLog: messages } : s);
+    updateHistory(updated);
   };
 
   // Sidebar Actions
@@ -180,6 +188,7 @@ const App: React.FC = () => {
   const deleteSession = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = savedSessions.filter(s => s.id !== id);
+    if (activeSessionId === id) reset();
     updateHistory(updated);
     setActiveMenuId(null);
   };
@@ -353,9 +362,7 @@ const App: React.FC = () => {
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(studyData.summary);
     const voices = synth.getVoices();
-    const bestVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google'))) || 
-                      voices.find(v => v.lang.startsWith('en')) || 
-                      voices[0];
+    const bestVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
     if (bestVoice) utterance.voice = bestVoice;
     utterance.onboundary = (event) => {
       if (event.name === 'word') {
@@ -376,26 +383,41 @@ const App: React.FC = () => {
     if (!chatInput.trim() || isChatLoading) return;
     const userMsg = chatInput.trim();
     setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    const newChatLog: ChatMessage[] = [...chatLog, { role: 'user', content: userMsg }];
+    setChatLog(newChatLog);
+    updateChatLogPersistence(newChatLog);
+    
     setIsChatLoading(true);
     try {
       const fileData: FileData | undefined = selectedFile ? { data: selectedFile.base64, mimeType: selectedFile.mimeType } : undefined;
-      const responseStream = await askQuestionAboutDocumentStream(userMsg, chatMessages, notes, fileData);
+      const responseStream = await askQuestionAboutDocumentStream(userMsg, newChatLog, notes, fileData);
       let fullAnswer = "";
-      setChatMessages(prev => [...prev, { role: 'model', content: "" }]);
+      
+      const updatedLogWithModel: ChatMessage[] = [...newChatLog, { role: 'model', content: "" }];
+      setChatLog(updatedLogWithModel);
+      
       for await (const chunk of responseStream) {
         const text = chunk.text;
         if (text) {
           fullAnswer += text;
-          setChatMessages(prev => {
+          setChatLog(prev => {
             const next = [...prev];
             next[next.length - 1] = { role: 'model', content: fullAnswer };
             return next;
           });
         }
       }
+      
+      // Persist the final model response
+      setChatLog(prev => {
+        updateChatLogPersistence(prev);
+        return prev;
+      });
+      
     } catch (err) {
-      setChatMessages(prev => [...prev, { role: 'model', content: "Sorry, I had trouble finding an answer." }]);
+      const errorLog: ChatMessage[] = [...newChatLog, { role: 'model', content: "Sorry, I had trouble finding an answer." }];
+      setChatLog(errorLog);
+      updateChatLogPersistence(errorLog);
     } finally { setIsChatLoading(false); }
   };
 
@@ -403,7 +425,7 @@ const App: React.FC = () => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [chatMessages, isChatLoading]);
+  }, [chatLog, isChatLoading]);
 
   // Waterfall Splitter Utility
   const renderWaterfallMessage = (content: string, role: string) => {
@@ -492,7 +514,8 @@ const App: React.FC = () => {
     setPrefetchedBuffer(null);
     setIsPremiumLocked(true);
     setIsPremiumUnavailable(false);
-    setChatMessages([]);
+    setChatLog([]);
+    setActiveSessionId(null);
     stopAllPlayback();
     try {
       const fileData: FileData | undefined = selectedFile ? { data: selectedFile.base64, mimeType: selectedFile.mimeType } : undefined;
@@ -511,7 +534,8 @@ const App: React.FC = () => {
     stopAllPlayback();
     setStudyData(session.studyData);
     setNotes(session.originalNotes);
-    setChatMessages(session.chatMessages || []);
+    setChatLog(session.chatLog || []);
+    setActiveSessionId(session.id);
     setState(AppState.SUCCESS);
     prefetchAudio(session.studyData.summary);
     setIsSidebarOpen(false);
@@ -524,7 +548,8 @@ const App: React.FC = () => {
     setSelectedFile(null);
     setStudyData(null);
     setError(null);
-    setChatMessages([]);
+    setChatLog([]);
+    setActiveSessionId(null);
     setPrefetchedBuffer(null);
     setIsPremiumLocked(true);
     setIsPremiumUnavailable(false);
@@ -554,7 +579,7 @@ const App: React.FC = () => {
     <div className="relative group/item mb-3">
       <button 
         onClick={() => loadSession(session)}
-        className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/50'}`}
+        className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/50'} ${activeSessionId === session.id ? (isDark ? 'bg-white/10 border-indigo-500/50' : 'bg-slate-100 border-indigo-500/50') : ''}`}
       >
         {renamingId === session.id ? (
           <form onSubmit={handleRenameSubmit} className="relative z-10" onClick={e => e.stopPropagation()}>
@@ -786,19 +811,19 @@ const App: React.FC = () => {
                   
                   <div className={`flex flex-col h-[500px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5' : 'bg-white/50 border-slate-200'}`}>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
-                      {chatMessages.length === 0 && (
+                      {chatLog.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40 px-10">
                           <p className="text-lg font-medium">Ask Lumina anything about the source document.</p>
                         </div>
                       )}
-                      {chatMessages.map((msg, i) => (
+                      {chatLog.map((msg, i) => (
                         <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-message`}>
                           <div className={`max-w-[85%] px-5 py-3 rounded-2xl text-sm leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : isDark ? 'bg-white/10 text-zinc-200 border border-white/5' : 'bg-slate-100 text-slate-800'}`}>
                             {renderWaterfallMessage(msg.content, msg.role)}
                           </div>
                         </div>
                       ))}
-                      {isChatLoading && chatMessages[chatMessages.length - 1]?.role === 'user' && (
+                      {isChatLoading && chatLog[chatLog.length - 1]?.role === 'user' && (
                         <div className="flex justify-start animate-message">
                           <div className={`px-5 py-4 rounded-2xl flex gap-1.5 items-center ${isDark ? 'bg-white/10 border border-white/5' : 'bg-slate-100'}`}>
                             <span className="typing-dot"></span><span className="typing-dot"></span><span className="typing-dot"></span>

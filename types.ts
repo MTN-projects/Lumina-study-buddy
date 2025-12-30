@@ -27,7 +27,7 @@ export interface StudySession {
   fileName: string;
   title: string;
   studyData: StudyData;
-  chatMessages: ChatMessage[];
+  chatLog: ChatMessage[];
   originalNotes: string;
   isPinned?: boolean;
 }
