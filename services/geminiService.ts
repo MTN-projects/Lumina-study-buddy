@@ -14,7 +14,10 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
     Analyze the provided lecture material (text and/or document) deeply to:
     1. Summarize the main argument and core concepts with academic rigor.
     2. Extract exactly 5 of the most important technical terms used in the material.
-    3. Generate 3 challenging multiple-choice questions to test comprehension of these concepts.
+    3. Generate exactly 10 challenging multiple-choice questions to test comprehension. 
+       - Every time a quiz is generated, select different key concepts from the document to ensure variety. 
+       - Difficulty Mix: Provide exactly 3 easy, 4 medium, and 3 hard questions to create a professional learning curve.
+       - Do not repeat questions or concepts from previous attempts.
     4. Generate a short, professional academic title (3-5 words) for this study material.
 
     ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
@@ -73,7 +76,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
               },
               required: ["question", "options", "correctAnswerIndex"]
             },
-            description: "3 practice questions that require critical thinking based on the provided text.",
+            description: "10 practice questions with a mix of easy (3), medium (4), and hard (3) difficulties.",
           }
         },
         required: ["title", "summary", "vocabulary", "quiz"]
