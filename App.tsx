@@ -47,12 +47,15 @@ const App: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   
   // TTS State
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const playedOffsetRef = useRef<number>(0);
+  
   const exportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -115,41 +118,53 @@ const App: React.FC = () => {
   const stopPlayback = () => {
     if (sourceRef.current) {
       try {
+        sourceRef.current.onended = null;
         sourceRef.current.stop();
       } catch (e) {}
       sourceRef.current = null;
     }
-    setIsSpeaking(false);
+    playedOffsetRef.current = 0;
+    setPlaybackState('idle');
   };
 
-  const handleReadAloud = async () => {
-    if (isSpeaking) {
-      stopPlayback();
+  const handlePlayPause = async () => {
+    const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    if (!audioContextRef.current) audioContextRef.current = ctx;
+
+    if (playbackState === 'playing') {
+      // Pause logic
+      if (sourceRef.current) {
+        const elapsed = ctx.currentTime - startTimeRef.current;
+        playedOffsetRef.current += elapsed;
+        sourceRef.current.onended = null;
+        sourceRef.current.stop();
+        sourceRef.current = null;
+        setPlaybackState('paused');
+      }
       return;
     }
 
+    if (playbackState === 'paused' && prefetchedBuffer) {
+      // Resume logic
+      playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
+      return;
+    }
+
+    // Start from beginning logic
     if (!studyData?.summary) return;
 
-    // Use prefetched buffer if ready
     if (prefetchedBuffer) {
-      playBuffer(prefetchedBuffer);
+      playFromBuffer(prefetchedBuffer, 0);
       return;
     }
 
-    // Otherwise, load on demand
     setIsAudioLoading(true);
     try {
       const base64 = await generateSpeech(studyData.summary);
       const audioData = decode(base64);
-      
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      }
-      const ctx = audioContextRef.current;
       const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
-      
-      setPrefetchedBuffer(audioBuffer); // Cache it
-      playBuffer(audioBuffer);
+      setPrefetchedBuffer(audioBuffer);
+      playFromBuffer(audioBuffer, 0);
     } catch (err) {
       console.error("Speech generation failed:", err);
       setError("Failed to generate audio playback.");
@@ -158,11 +173,10 @@ const App: React.FC = () => {
     }
   };
 
-  const playBuffer = (buffer: AudioBuffer) => {
+  const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
     if (!audioContextRef.current) return;
     const ctx = audioContextRef.current;
     
-    // Ensure context is running (required for some browsers after user interaction)
     if (ctx.state === 'suspended') {
       ctx.resume();
     }
@@ -170,11 +184,18 @@ const App: React.FC = () => {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
-    source.onended = () => setIsSpeaking(false);
+    
+    source.onended = () => {
+      if (playbackState === 'playing') {
+        playedOffsetRef.current = 0;
+        setPlaybackState('idle');
+      }
+    };
     
     sourceRef.current = source;
-    source.start(0);
-    setIsSpeaking(true);
+    startTimeRef.current = ctx.currentTime;
+    source.start(0, offset % buffer.duration);
+    setPlaybackState('playing');
   };
 
   const handleDownloadPDF = async () => {
@@ -214,7 +235,8 @@ const App: React.FC = () => {
     
     setState(AppState.LOADING);
     setError(null);
-    setPrefetchedBuffer(null); // Clear old buffer
+    setPrefetchedBuffer(null);
+    stopPlayback();
     try {
       const fileData: FileData | undefined = selectedFile ? {
         data: selectedFile.base64,
@@ -225,7 +247,6 @@ const App: React.FC = () => {
       setStudyData(data);
       setState(AppState.SUCCESS);
       
-      // Background pre-fetch the TTS immediately after guide is generated
       prefetchAudio(data.summary);
     } catch (err) {
       console.error(err);
@@ -411,30 +432,47 @@ const App: React.FC = () => {
                     <h2 className={`text-3xl font-black tracking-tight transition-colors ${isDark ? 'text-white' : 'text-slate-900'}`}>Core Summary</h2>
                   </div>
                   <div className="flex items-center gap-3">
-                    <button 
-                      onClick={handleReadAloud}
-                      disabled={isAudioLoading}
-                      className={`w-12 h-12 flex items-center justify-center rounded-full backdrop-blur-md border transition-all duration-300 shadow-lg ${
-                        isSpeaking 
-                          ? 'bg-rose-500/20 border-rose-500/50 text-rose-400 scale-110' 
-                          : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:scale-105'
-                      } active:scale-95 disabled:opacity-50`}
-                    >
-                      {isAudioLoading ? (
-                        <svg className="animate-spin h-6 w-6 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      ) : isSpeaking ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={handlePlayPause}
+                        disabled={isAudioLoading}
+                        className={`w-12 h-12 flex items-center justify-center rounded-full backdrop-blur-md border transition-all duration-300 shadow-lg ${
+                          playbackState === 'playing' 
+                            ? 'bg-rose-500/20 border-rose-500/50 text-rose-400 scale-110 shadow-rose-500/20' 
+                            : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:scale-105 shadow-indigo-500/10'
+                        } active:scale-95 disabled:opacity-50`}
+                      >
+                        {isAudioLoading ? (
+                          <svg className="animate-spin h-6 w-6 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : playbackState === 'playing' ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 ml-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+
+                      <button 
+                        onClick={stopPlayback}
+                        disabled={playbackState === 'idle'}
+                        className={`w-12 h-12 flex items-center justify-center rounded-full backdrop-blur-md border transition-all duration-300 shadow-lg ${
+                          playbackState !== 'idle'
+                            ? 'bg-rose-500/20 border-rose-500/50 text-rose-400 hover:bg-rose-500/30' 
+                            : 'bg-zinc-800/10 border-white/5 text-zinc-600 opacity-40 cursor-not-allowed'
+                        } active:scale-95`}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                           <rect x="6" y="6" width="8" height="8" rx="1" />
                         </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 ml-1" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M4.5 3a.5.5 0 00-.5.5v13a.5.5 0 00.8.4l10.5-6.5a.5.5 0 000-.8L4.8 2.6a.5.5 0 00-.3-.1z" />
-                        </svg>
-                      )}
-                    </button>
+                      </button>
+                    </div>
+
                     <Button 
                       theme={theme}
                       variant="secondary" 
