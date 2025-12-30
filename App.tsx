@@ -142,19 +142,29 @@ const App: React.FC = () => {
 
   // --- AUDIO LOGIC ---
 
+  /**
+   * Universal Stop Function
+   * Strictly cancels both native speech synthesis and AudioContext sources.
+   */
   const stopAllPlayback = () => {
-    // Stop Premium
-    if (sourceRef.current) {
-      try { sourceRef.current.onended = null; sourceRef.current.stop(); } catch (e) {}
-      sourceRef.current = null;
-    }
-    playedOffsetRef.current = 0;
-
-    // Stop Active Reader
+    // 1. Stop Native Speech Synthesis (Active Reader)
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+
+    // 2. Stop AudioContext Source (Premium Voice)
+    if (sourceRef.current) {
+      try { 
+        sourceRef.current.onended = null; 
+        sourceRef.current.stop(); 
+      } catch (e) {
+        // Source might already be stopped
+      }
+      sourceRef.current = null;
+    }
     
+    // 3. Reset state tracking
+    playedOffsetRef.current = 0;
     setPlaybackState('idle');
     setActiveMode('none');
     setCurrentWordIndex(null);
@@ -162,16 +172,20 @@ const App: React.FC = () => {
 
   /**
    * Premium Voice: High-quality Gemini TTS
+   * Mutual Exclusion: Cancels Active Reader before starting.
    */
   const togglePremiumVoice = async () => {
-    if (activeMode === 'active') stopAllPlayback();
+    // Exclusive Check: If native reader is running, kill it first.
+    if (activeMode === 'active') {
+      stopAllPlayback();
+    }
 
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (!audioContextRef.current) audioContextRef.current = ctx;
 
     if (activeMode === 'premium') {
       if (playbackState === 'playing') {
-        // Pause logic
+        // Pause current premium stream
         if (sourceRef.current) {
           const elapsed = ctx.currentTime - startTimeRef.current;
           playedOffsetRef.current += elapsed;
@@ -182,13 +196,13 @@ const App: React.FC = () => {
         }
         return;
       } else if (playbackState === 'paused' && prefetchedBuffer) {
-        // Resume logic
+        // Resume from offset
         playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
         return;
       }
     }
 
-    // Start fresh logic
+    // Fresh start or buffer-not-ready logic
     if (!studyData?.summary) return;
     setActiveMode('premium');
 
@@ -222,6 +236,7 @@ const App: React.FC = () => {
     source.buffer = buffer;
     source.connect(ctx.destination);
     source.onended = () => {
+      // Only reset if this source reached the end naturally
       if (activeMode === 'premium' && playbackState === 'playing') {
         playedOffsetRef.current = 0;
         setPlaybackState('idle');
@@ -230,15 +245,21 @@ const App: React.FC = () => {
     };
     sourceRef.current = source;
     startTimeRef.current = ctx.currentTime;
-    source.start(0, offset % buffer.duration);
+    // Safety check for offset
+    const actualOffset = offset % buffer.duration;
+    source.start(0, actualOffset);
     setPlaybackState('playing');
   };
 
   /**
    * Active Reader: Browser TTS with Word Sync Highlighting
+   * Mutual Exclusion: Cancels Premium Voice before starting.
    */
   const toggleActiveReader = () => {
-    if (activeMode === 'premium') stopAllPlayback();
+    // Exclusive Check: If premium voice is running, kill it first.
+    if (activeMode === 'premium') {
+      stopAllPlayback();
+    }
 
     const synth = window.speechSynthesis;
     if (!synth) return;
@@ -254,17 +275,19 @@ const App: React.FC = () => {
       return;
     }
 
-    // Start fresh
+    // Start fresh native reader
     if (!studyData?.summary) return;
     setActiveMode('active');
+    
+    // Strict stop of anything else on native synth
     synth.cancel();
 
     const utterance = new SpeechSynthesisUtterance(studyData.summary);
     utterance.rate = 1.0;
     
-    // Attempt to pick a decent local voice
     const voices = synth.getVoices();
-    const bestVoice = voices.find(v => v.lang === 'en-US' && v.name.includes('Natural')) || 
+    // Prioritize natural/high quality local voices for Active Reader
+    const bestVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google'))) || 
                       voices.find(v => v.lang.startsWith('en')) || 
                       voices[0];
     if (bestVoice) utterance.voice = bestVoice;
@@ -279,14 +302,19 @@ const App: React.FC = () => {
 
     utterance.onstart = () => setPlaybackState('playing');
     utterance.onend = () => {
-      setPlaybackState('idle');
-      setActiveMode('none');
-      setCurrentWordIndex(null);
+      // Prevent state overlap if we stopped manually
+      if (activeMode === 'active') {
+        setPlaybackState('idle');
+        setActiveMode('none');
+        setCurrentWordIndex(null);
+      }
     };
-    utterance.onerror = () => {
-      setPlaybackState('idle');
-      setActiveMode('none');
-      setCurrentWordIndex(null);
+    utterance.onerror = (e) => {
+      if (e.error !== 'interrupted') {
+        setPlaybackState('idle');
+        setActiveMode('none');
+        setCurrentWordIndex(null);
+      }
     };
 
     synth.speak(utterance);
@@ -528,59 +556,86 @@ const App: React.FC = () => {
                     <h2 className={`text-3xl font-black tracking-tight transition-colors ${isDark ? 'text-white' : 'text-slate-900'}`}>Core Summary</h2>
                   </div>
                   
-                  {/* TWO AUDIO MODES */}
+                  {/* TWO AUDIO MODES WITH EXCLUSIVE CONTROLS */}
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2 p-1 bg-black/10 rounded-2xl border border-white/5 backdrop-blur-md">
-                      {/* Premium Voice Button */}
-                      <button 
-                        onClick={togglePremiumVoice}
-                        disabled={isAudioLoading}
-                        title="High-quality AI voice, no highlight"
-                        className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs font-black tracking-widest uppercase ${
-                          activeMode === 'premium' 
-                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' 
-                          : 'hover:bg-white/5 text-zinc-400'
-                        }`}
-                      >
-                        {isAudioLoading ? (
-                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                        {activeMode === 'premium' && playbackState === 'paused' ? 'Resume Premium' : 'Premium Voice'}
-                      </button>
-
-                      {/* Active Reader Button */}
-                      <button 
-                        onClick={toggleActiveReader}
-                        title="Local voice with word-by-word highlight"
-                        className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs font-black tracking-widest uppercase ${
-                          activeMode === 'active' 
-                          ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30' 
-                          : 'hover:bg-white/5 text-zinc-400'
-                        }`}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                        </svg>
-                        {activeMode === 'active' && playbackState === 'paused' ? 'Resume Reader' : 'Active Reader'}
-                      </button>
-
-                      {activeMode !== 'none' && (
+                      {/* Premium Voice Group */}
+                      <div className="flex items-center gap-1 pr-2 border-r border-white/10">
                         <button 
-                          onClick={stopAllPlayback}
-                          className="w-10 h-10 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all border border-rose-500/20"
+                          onClick={togglePremiumVoice}
+                          disabled={isAudioLoading}
+                          title="High-quality AI voice"
+                          className={`px-3 py-2 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase ${
+                            activeMode === 'premium' 
+                            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' 
+                            : 'hover:bg-white/5 text-zinc-400'
+                          }`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <rect x="6" y="6" width="8" height="8" rx="1" />
-                          </svg>
+                          {isAudioLoading ? (
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            playbackState === 'playing' && activeMode === 'premium' ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                              </svg>
+                            )
+                          )}
+                          <span className="hidden sm:inline">{activeMode === 'premium' && playbackState === 'paused' ? 'Resume' : 'Premium'}</span>
                         </button>
-                      )}
+                        
+                        {activeMode === 'premium' && (
+                          <button 
+                            onClick={stopAllPlayback}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all border border-rose-500/20"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <rect x="6" y="6" width="8" height="8" rx="1" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Active Reader Group */}
+                      <div className="flex items-center gap-1 pl-1">
+                        <button 
+                          onClick={toggleActiveReader}
+                          title="Local voice with highlight"
+                          className={`px-3 py-2 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase ${
+                            activeMode === 'active' 
+                            ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30' 
+                            : 'hover:bg-white/5 text-zinc-400'
+                          }`}
+                        >
+                          {playbackState === 'playing' && activeMode === 'active' ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                            </svg>
+                          )}
+                          <span className="hidden sm:inline">{activeMode === 'active' && playbackState === 'paused' ? 'Resume' : 'Reader'}</span>
+                        </button>
+
+                        {activeMode === 'active' && (
+                          <button 
+                            onClick={stopAllPlayback}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all border border-rose-500/20"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <rect x="6" y="6" width="8" height="8" rx="1" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <Button 
