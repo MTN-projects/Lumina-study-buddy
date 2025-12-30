@@ -1,11 +1,40 @@
-
 import React, { useState, useRef } from 'react';
 import { AppState, StudyData } from './types';
-import { processLectureNotes, FileData } from './services/geminiService';
+import { processLectureNotes, generateSpeech, FileData } from './services/geminiService';
 import { Button } from './components/Button';
 import { Quiz } from './components/Quiz';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+
+// Helper functions for audio processing
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
 
 const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -17,6 +46,12 @@ const App: React.FC = () => {
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
+  // TTS State
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+
   const exportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +93,45 @@ const App: React.FC = () => {
       } catch (err) {
         console.error('Failed to copy text: ', err);
       }
+    }
+  };
+
+  const handleReadAloud = async () => {
+    if (isSpeaking) {
+      if (sourceRef.current) {
+        sourceRef.current.stop();
+        sourceRef.current = null;
+      }
+      setIsSpeaking(false);
+      return;
+    }
+
+    if (!studyData?.summary) return;
+
+    setIsAudioLoading(true);
+    try {
+      const base64 = await generateSpeech(studyData.summary);
+      const audioData = decode(base64);
+      
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+      
+      const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => setIsSpeaking(false);
+      
+      sourceRef.current = source;
+      source.start();
+      setIsSpeaking(true);
+    } catch (err) {
+      console.error("Speech generation failed:", err);
+      setError("Failed to generate audio playback.");
+    } finally {
+      setIsAudioLoading(false);
     }
   };
 
@@ -115,11 +189,16 @@ const App: React.FC = () => {
   };
 
   const reset = () => {
+    if (sourceRef.current) {
+      sourceRef.current.stop();
+      sourceRef.current = null;
+    }
     setState(AppState.IDLE);
     setNotes('');
     setSelectedFile(null);
     setStudyData(null);
     setError(null);
+    setIsSpeaking(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -288,14 +367,33 @@ const App: React.FC = () => {
                     </div>
                     <h2 className={`text-3xl font-black tracking-tight transition-colors ${isDark ? 'text-white' : 'text-slate-900'}`}>Core Summary</h2>
                   </div>
-                  <Button 
-                    theme={theme}
-                    variant="secondary" 
-                    className={`px-5 py-2.5 text-xs font-black rounded-full transition-all border ${isCopied ? 'text-green-400 border-green-500/30 bg-green-500/10' : (isDark ? 'border-white/5 bg-white/5 text-zinc-400' : '')}`}
-                    onClick={handleCopySummary}
-                  >
-                    {isCopied ? 'COPIED TO CLIPBOARD' : 'COPY SUMMARY'}
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    <Button 
+                      theme={theme}
+                      variant="ghost" 
+                      onClick={handleReadAloud}
+                      isLoading={isAudioLoading}
+                      className={`w-10 h-10 p-0 rounded-full backdrop-blur-md border transition-all ${isSpeaking ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}
+                    >
+                      {isSpeaking ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </Button>
+                    <Button 
+                      theme={theme}
+                      variant="secondary" 
+                      className={`px-5 py-2.5 text-xs font-black rounded-full transition-all border ${isCopied ? 'text-green-400 border-green-500/30 bg-green-500/10' : (isDark ? 'border-white/5 bg-white/5 text-zinc-400' : '')}`}
+                      onClick={handleCopySummary}
+                    >
+                      {isCopied ? 'COPIED' : 'COPY'}
+                    </Button>
+                  </div>
                 </div>
                 <div className={`text-xl leading-relaxed whitespace-pre-line relative z-10 font-normal opacity-90 transition-colors ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
                   {studyData.summary}

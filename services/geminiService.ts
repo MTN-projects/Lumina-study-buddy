@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { StudyData } from "../types";
 
@@ -80,4 +79,24 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   const text = response.text;
   if (!text) throw new Error("Failed to generate study data.");
   return JSON.parse(text) as StudyData;
+};
+
+export const generateSpeech = async (text: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: `Read this academic summary clearly and at a moderate pace: ${text}` }] }],
+    config: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+        },
+      },
+    },
+  });
+
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Audio) throw new Error("Audio generation failed.");
+  return base64Audio;
 };
