@@ -69,6 +69,24 @@
             animation-delay: 400ms;
         }
 
+        /* Active Reader Highlighting */
+        .word-span {
+            display: inline-block;
+            transition: all 0.15s ease;
+            margin-right: 0.25em;
+            color: inherit;
+        }
+
+        .active-word {
+            color: #ffffff !important;
+            transform: scale(1.1);
+            text-shadow: 0 0 10px rgba(139, 92, 246, 0.8), 0 0 20px rgba(139, 92, 246, 0.4);
+            background: rgba(139, 92, 246, 0.2);
+            border-radius: 4px;
+            padding: 0 2px;
+            z-index: 10;
+        }
+
         ::-webkit-scrollbar {
             width: 8px;
         }

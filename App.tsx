@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppState, StudyData } from './types';
 import { processLectureNotes, generateSpeech, FileData } from './services/geminiService';
 import { Button } from './components/Button';
@@ -36,6 +36,8 @@ async function decodeAudioData(
   return buffer;
 }
 
+type PlaybackMode = 'premium' | 'active' | 'none';
+
 const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [state, setState] = useState<AppState>(AppState.IDLE);
@@ -46,10 +48,14 @@ const App: React.FC = () => {
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  // TTS State
+  // Playback State
+  const [activeMode, setActiveMode] = useState<PlaybackMode>('none');
   const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
+  
+  // Active Reader (Karaoke) State
+  const [currentWordIndex, setCurrentWordIndex] = useState<number | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -65,7 +71,26 @@ const App: React.FC = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
-  // Background Pre-fetcher
+  /**
+   * Word Segmentation for Active Reader mode.
+   * Tracks character offsets to sync with speech boundary events.
+   */
+  const wordSegments = useMemo(() => {
+    if (!studyData?.summary) return [];
+    const segments = [];
+    const regex = /\S+/g;
+    let match;
+    while ((match = regex.exec(studyData.summary)) !== null) {
+      segments.push({
+        text: match[0],
+        start: match.index,
+        end: match.index + match[0].length
+      });
+    }
+    return segments;
+  }, [studyData?.summary]);
+
+  // Background Pre-fetcher for Premium Voice
   const prefetchAudio = async (text: string) => {
     try {
       if (!audioContextRef.current) {
@@ -115,43 +140,57 @@ const App: React.FC = () => {
     }
   };
 
-  const stopPlayback = () => {
+  // --- AUDIO LOGIC ---
+
+  const stopAllPlayback = () => {
+    // Stop Premium
     if (sourceRef.current) {
-      try {
-        sourceRef.current.onended = null;
-        sourceRef.current.stop();
-      } catch (e) {}
+      try { sourceRef.current.onended = null; sourceRef.current.stop(); } catch (e) {}
       sourceRef.current = null;
     }
     playedOffsetRef.current = 0;
+
+    // Stop Active Reader
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    
     setPlaybackState('idle');
+    setActiveMode('none');
+    setCurrentWordIndex(null);
   };
 
-  const handlePlayPause = async () => {
+  /**
+   * Premium Voice: High-quality Gemini TTS
+   */
+  const togglePremiumVoice = async () => {
+    if (activeMode === 'active') stopAllPlayback();
+
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (!audioContextRef.current) audioContextRef.current = ctx;
 
-    if (playbackState === 'playing') {
-      // Pause logic
-      if (sourceRef.current) {
-        const elapsed = ctx.currentTime - startTimeRef.current;
-        playedOffsetRef.current += elapsed;
-        sourceRef.current.onended = null;
-        sourceRef.current.stop();
-        sourceRef.current = null;
-        setPlaybackState('paused');
+    if (activeMode === 'premium') {
+      if (playbackState === 'playing') {
+        // Pause logic
+        if (sourceRef.current) {
+          const elapsed = ctx.currentTime - startTimeRef.current;
+          playedOffsetRef.current += elapsed;
+          sourceRef.current.onended = null;
+          sourceRef.current.stop();
+          sourceRef.current = null;
+          setPlaybackState('paused');
+        }
+        return;
+      } else if (playbackState === 'paused' && prefetchedBuffer) {
+        // Resume logic
+        playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
+        return;
       }
-      return;
     }
 
-    if (playbackState === 'paused' && prefetchedBuffer) {
-      // Resume logic
-      playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
-      return;
-    }
-
-    // Start from beginning logic
+    // Start fresh logic
     if (!studyData?.summary) return;
+    setActiveMode('premium');
 
     if (prefetchedBuffer) {
       playFromBuffer(prefetchedBuffer, 0);
@@ -166,8 +205,9 @@ const App: React.FC = () => {
       setPrefetchedBuffer(audioBuffer);
       playFromBuffer(audioBuffer, 0);
     } catch (err) {
-      console.error("Speech generation failed:", err);
-      setError("Failed to generate audio playback.");
+      console.error("Premium Voice generation failed:", err);
+      setError("Failed to generate premium audio.");
+      setActiveMode('none');
     } finally {
       setIsAudioLoading(false);
     }
@@ -176,27 +216,83 @@ const App: React.FC = () => {
   const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
     if (!audioContextRef.current) return;
     const ctx = audioContextRef.current;
-    
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
+    if (ctx.state === 'suspended') ctx.resume();
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
-    
     source.onended = () => {
-      if (playbackState === 'playing') {
+      if (activeMode === 'premium' && playbackState === 'playing') {
         playedOffsetRef.current = 0;
         setPlaybackState('idle');
+        setActiveMode('none');
       }
     };
-    
     sourceRef.current = source;
     startTimeRef.current = ctx.currentTime;
     source.start(0, offset % buffer.duration);
     setPlaybackState('playing');
   };
+
+  /**
+   * Active Reader: Browser TTS with Word Sync Highlighting
+   */
+  const toggleActiveReader = () => {
+    if (activeMode === 'premium') stopAllPlayback();
+
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    if (activeMode === 'active') {
+      if (playbackState === 'playing') {
+        synth.pause();
+        setPlaybackState('paused');
+      } else if (playbackState === 'paused') {
+        synth.resume();
+        setPlaybackState('playing');
+      }
+      return;
+    }
+
+    // Start fresh
+    if (!studyData?.summary) return;
+    setActiveMode('active');
+    synth.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(studyData.summary);
+    utterance.rate = 1.0;
+    
+    // Attempt to pick a decent local voice
+    const voices = synth.getVoices();
+    const bestVoice = voices.find(v => v.lang === 'en-US' && v.name.includes('Natural')) || 
+                      voices.find(v => v.lang.startsWith('en')) || 
+                      voices[0];
+    if (bestVoice) utterance.voice = bestVoice;
+
+    utterance.onboundary = (event) => {
+      if (event.name === 'word') {
+        const charIdx = event.charIndex;
+        const matchIdx = wordSegments.findIndex(seg => charIdx >= seg.start && charIdx <= seg.end);
+        if (matchIdx !== -1) setCurrentWordIndex(matchIdx);
+      }
+    };
+
+    utterance.onstart = () => setPlaybackState('playing');
+    utterance.onend = () => {
+      setPlaybackState('idle');
+      setActiveMode('none');
+      setCurrentWordIndex(null);
+    };
+    utterance.onerror = () => {
+      setPlaybackState('idle');
+      setActiveMode('none');
+      setCurrentWordIndex(null);
+    };
+
+    synth.speak(utterance);
+  };
+
+  // --- CORE APP LOGIC ---
 
   const handleDownloadPDF = async () => {
     if (!studyData || !exportRef.current) return;
@@ -236,7 +332,7 @@ const App: React.FC = () => {
     setState(AppState.LOADING);
     setError(null);
     setPrefetchedBuffer(null);
-    stopPlayback();
+    stopAllPlayback();
     try {
       const fileData: FileData | undefined = selectedFile ? {
         data: selectedFile.base64,
@@ -256,7 +352,7 @@ const App: React.FC = () => {
   };
 
   const reset = () => {
-    stopPlayback();
+    stopAllPlayback();
     setState(AppState.IDLE);
     setNotes('');
     setSelectedFile(null);
@@ -422,7 +518,7 @@ const App: React.FC = () => {
             {/* Left Column: Summary & Vocab */}
             <div className="lg:col-span-2 space-y-12">
               <section className={`p-10 md:p-12 rounded-[3.5rem] relative overflow-hidden transition-all duration-500 animate-spring-up ${glassCardClass}`}>
-                <div className="flex items-center justify-between mb-10 relative z-10">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 relative z-10">
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -431,46 +527,60 @@ const App: React.FC = () => {
                     </div>
                     <h2 className={`text-3xl font-black tracking-tight transition-colors ${isDark ? 'text-white' : 'text-slate-900'}`}>Core Summary</h2>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
+                  
+                  {/* TWO AUDIO MODES */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 p-1 bg-black/10 rounded-2xl border border-white/5 backdrop-blur-md">
+                      {/* Premium Voice Button */}
                       <button 
-                        onClick={handlePlayPause}
+                        onClick={togglePremiumVoice}
                         disabled={isAudioLoading}
-                        className={`w-12 h-12 flex items-center justify-center rounded-full backdrop-blur-md border transition-all duration-300 shadow-lg ${
-                          playbackState === 'playing' 
-                            ? 'bg-rose-500/20 border-rose-500/50 text-rose-400 scale-110 shadow-rose-500/20' 
-                            : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:scale-105 shadow-indigo-500/10'
-                        } active:scale-95 disabled:opacity-50`}
+                        title="High-quality AI voice, no highlight"
+                        className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs font-black tracking-widest uppercase ${
+                          activeMode === 'premium' 
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' 
+                          : 'hover:bg-white/5 text-zinc-400'
+                        }`}
                       >
                         {isAudioLoading ? (
-                          <svg className="animate-spin h-6 w-6 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                        ) : playbackState === 'playing' ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                          </svg>
                         ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 ml-1" viewBox="0 0 20 20" fill="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
                           </svg>
                         )}
+                        {activeMode === 'premium' && playbackState === 'paused' ? 'Resume Premium' : 'Premium Voice'}
                       </button>
 
+                      {/* Active Reader Button */}
                       <button 
-                        onClick={stopPlayback}
-                        disabled={playbackState === 'idle'}
-                        className={`w-12 h-12 flex items-center justify-center rounded-full backdrop-blur-md border transition-all duration-300 shadow-lg ${
-                          playbackState !== 'idle'
-                            ? 'bg-rose-500/20 border-rose-500/50 text-rose-400 hover:bg-rose-500/30' 
-                            : 'bg-zinc-800/10 border-white/5 text-zinc-600 opacity-40 cursor-not-allowed'
-                        } active:scale-95`}
+                        onClick={toggleActiveReader}
+                        title="Local voice with word-by-word highlight"
+                        className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs font-black tracking-widest uppercase ${
+                          activeMode === 'active' 
+                          ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30' 
+                          : 'hover:bg-white/5 text-zinc-400'
+                        }`}
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <rect x="6" y="6" width="8" height="8" rx="1" />
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                         </svg>
+                        {activeMode === 'active' && playbackState === 'paused' ? 'Resume Reader' : 'Active Reader'}
                       </button>
+
+                      {activeMode !== 'none' && (
+                        <button 
+                          onClick={stopAllPlayback}
+                          className="w-10 h-10 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all border border-rose-500/20"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <rect x="6" y="6" width="8" height="8" rx="1" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
 
                     <Button 
@@ -483,9 +593,23 @@ const App: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                <div className={`text-xl leading-relaxed whitespace-pre-line relative z-10 font-normal opacity-90 transition-colors ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
-                  {studyData.summary}
+
+                {/* Summary Rendering (with per-word spans for Active Reader) */}
+                <div className={`text-xl leading-relaxed relative z-10 font-normal transition-colors ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
+                  {activeMode === 'active' ? (
+                    wordSegments.map((word, idx) => (
+                      <span 
+                        key={idx} 
+                        className={`word-span ${currentWordIndex === idx ? 'active-word' : ''}`}
+                      >
+                        {word.text}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="whitespace-pre-line">{studyData.summary}</span>
+                  )}
                 </div>
+
                 <div className={`absolute top-0 right-0 w-80 h-80 blur-[120px] -mr-40 -mt-40 transition-colors ${isDark ? 'bg-indigo-500/10' : 'bg-indigo-500/10'}`}></div>
               </section>
 
