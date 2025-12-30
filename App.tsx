@@ -55,6 +55,9 @@ const App: React.FC = () => {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // Export Menu State
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -367,6 +370,7 @@ const App: React.FC = () => {
   const handleDownloadPDF = async () => {
     if (!studyData || !exportRef.current) return;
     setIsDownloading(true);
+    setIsExportMenuOpen(false);
     try {
       const element = exportRef.current;
       element.style.display = 'block';
@@ -374,9 +378,57 @@ const App: React.FC = () => {
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), (canvas.height * pdf.internal.pageSize.getWidth()) / canvas.width);
-      pdf.save('Lumina_Study_Guide.pdf');
+      pdf.save(`${studyData.title || 'Lumina_Study_Guide'}.pdf`);
       element.style.display = 'none';
-    } catch (err) {} finally { setIsDownloading(false); }
+    } catch (err) {
+      console.error(err);
+    } finally { setIsDownloading(false); }
+  };
+
+  const handleExportToNotion = () => {
+    if (!studyData) return;
+    setIsExportMenuOpen(false);
+    const title = studyData.title || 'Study Guide';
+    const content = `# ${title}\n\n## Summary\n${studyData.summary}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}`;
+    
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '_')}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportToAnki = () => {
+    if (!studyData) return;
+    setIsExportMenuOpen(false);
+    const title = studyData.title || 'Study_Guide';
+    
+    // Header
+    let csv = "Front,Back\n";
+    
+    // Add Vocabulary
+    studyData.vocabulary.forEach(v => {
+      const front = v.word.replace(/"/g, '""');
+      const back = v.definition.replace(/"/g, '""');
+      csv += `"${front}","${back}"\n`;
+    });
+    
+    // Add Quiz Questions
+    studyData.quiz.forEach((q, i) => {
+      const front = `Question ${i+1}: ${q.question}`.replace(/"/g, '""');
+      const back = `Correct Answer: ${q.options[q.correctAnswerIndex]}`.replace(/"/g, '""');
+      csv += `"${front}","${back}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '_')}_Anki.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleSubmit = async () => {
@@ -419,7 +471,6 @@ const App: React.FC = () => {
     setChatMessages([]);
     setPrefetchedBuffer(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    // Sidebar stays visible but session clears
   };
 
   const glassCardClass = isDark 
@@ -439,7 +490,6 @@ const App: React.FC = () => {
   const pinnedSessions = savedSessions.filter(s => s.isPinned);
   const recentSessions = savedSessions.filter(s => !s.isPinned);
 
-  // Added React.FC type to fix TS error when passing 'key' prop during map
   const SessionItem: React.FC<{ session: StudySession }> = ({ session }) => (
     <div className="relative group/item mb-3">
       <button 
@@ -539,7 +589,7 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Container */}
-      <div className="flex-1 flex flex-col min-w-0" onClick={() => setActiveMenuId(null)}>
+      <div className="flex-1 flex flex-col min-w-0" onClick={() => { setActiveMenuId(null); setIsExportMenuOpen(false); }}>
         {isDark && (
           <>
             <div className="glow-orb animate-float fixed top-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -716,9 +766,46 @@ const App: React.FC = () => {
                       <p className="text-indigo-100 text-lg mb-8 leading-relaxed opacity-90">Export your materials or start fresh.</p>
                       <div className="space-y-4">
                         <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
-                        <Button theme={theme} variant="primary" className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2" onClick={handleDownloadPDF} isLoading={isDownloading}>
-                          {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
-                        </Button>
+                        
+                        <div className="relative">
+                          <Button 
+                            theme={theme} 
+                            variant="primary" 
+                            className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2" 
+                            onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }}
+                            isLoading={isDownloading}
+                          >
+                            {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          </Button>
+
+                          {/* Export Dropdown Menu */}
+                          {isExportMenuOpen && (
+                            <div className={`absolute bottom-full mb-2 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden ${isDark ? 'bg-indigo-950/90 border-white/10' : 'bg-white/95 border-slate-200'}`}>
+                              <button 
+                                onClick={handleDownloadPDF} 
+                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                PDF Document
+                              </button>
+                              <button 
+                                onClick={handleExportToNotion} 
+                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 text-zinc-300 border-white/5' : 'hover:bg-slate-100 text-slate-700 border-slate-100'}`}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 4v4h4" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h1M7 12h6M7 16h6" /></svg>
+                                Notion (.md)
+                              </button>
+                              <button 
+                                onClick={handleExportToAnki} 
+                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 text-zinc-300 border-white/5' : 'hover:bg-slate-100 text-slate-700 border-slate-100'}`}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                Flashcards (.csv)
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
