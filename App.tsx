@@ -51,6 +51,9 @@ const App: React.FC = () => {
   // Sidebar & History State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [savedSessions, setSavedSessions] = useState<StudySession[]>([]);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -79,7 +82,7 @@ const App: React.FC = () => {
 
   // Load History Effect
   useEffect(() => {
-    const history = localStorage.getItem('lumina_history');
+    const history = localStorage.getItem('lumina_history_v2');
     if (history) {
       try {
         setSavedSessions(JSON.parse(history));
@@ -95,13 +98,50 @@ const App: React.FC = () => {
       id: Date.now().toString(),
       timestamp: Date.now(),
       fileName: fileName || "Untitled Note",
+      title: data.title || "AI Generated Study Guide",
       studyData: data,
       chatMessages: [],
-      originalNotes: originalNotes
+      originalNotes: originalNotes,
+      isPinned: false
     };
     const updatedSessions = [newSession, ...savedSessions];
     setSavedSessions(updatedSessions);
-    localStorage.setItem('lumina_history', JSON.stringify(updatedSessions));
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updatedSessions));
+  };
+
+  const updateHistory = (updated: StudySession[]) => {
+    setSavedSessions(updated);
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+  };
+
+  // Sidebar Actions
+  const togglePin = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedSessions.map(s => s.id === id ? { ...s, isPinned: !s.isPinned } : s);
+    updateHistory(updated);
+    setActiveMenuId(null);
+  };
+
+  const startRename = (session: StudySession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(session.id);
+    setRenameValue(session.title);
+    setActiveMenuId(null);
+  };
+
+  const handleRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renamingId) return;
+    const updated = savedSessions.map(s => s.id === renamingId ? { ...s, title: renameValue } : s);
+    updateHistory(updated);
+    setRenamingId(null);
+  };
+
+  const deleteSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedSessions.filter(s => s.id !== id);
+    updateHistory(updated);
+    setActiveMenuId(null);
   };
 
   const toggleTheme = () => {
@@ -311,7 +351,6 @@ const App: React.FC = () => {
   // Waterfall Splitter Utility
   const renderWaterfallMessage = (content: string, role: string) => {
     if (role === 'user') return content;
-    // Split by logical blocks: paragraphs or list items
     const blocks = content.split('\n').filter(b => b.trim().length > 0);
     return blocks.map((block, i) => (
       <div 
@@ -353,7 +392,6 @@ const App: React.FC = () => {
       setStudyData(data);
       setState(AppState.SUCCESS);
       prefetchAudio(data.summary);
-      // Persistence
       saveSessionToHistory(data, notes, selectedFile?.name || "Text Snippet");
     } catch (err) {
       setError("An error occurred while processing your material.");
@@ -381,7 +419,7 @@ const App: React.FC = () => {
     setChatMessages([]);
     setPrefetchedBuffer(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    setIsSidebarOpen(false);
+    // Sidebar stays visible but session clears
   };
 
   const glassCardClass = isDark 
@@ -398,45 +436,110 @@ const App: React.FC = () => {
     return playbackState === 'playing' ? 'PAUSE' : 'RESUME';
   };
 
+  const pinnedSessions = savedSessions.filter(s => s.isPinned);
+  const recentSessions = savedSessions.filter(s => !s.isPinned);
+
+  // Added React.FC type to fix TS error when passing 'key' prop during map
+  const SessionItem: React.FC<{ session: StudySession }> = ({ session }) => (
+    <div className="relative group/item mb-3">
+      <button 
+        onClick={() => loadSession(session)}
+        className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/50'}`}
+      >
+        {renamingId === session.id ? (
+          <form onSubmit={handleRenameSubmit} className="relative z-10" onClick={e => e.stopPropagation()}>
+            <input 
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onBlur={handleRenameSubmit}
+              className={`w-full bg-transparent border-b outline-none text-sm font-bold ${isDark ? 'border-indigo-500 text-white' : 'border-indigo-600 text-slate-900'}`}
+            />
+          </form>
+        ) : (
+          <>
+            <div className="font-bold text-sm truncate mb-1 pr-6">{session.title}</div>
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest opacity-40 font-black">{new Date(session.timestamp).toLocaleDateString()}</div>
+              {session.isPinned && (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                </svg>
+              )}
+            </div>
+          </>
+        )}
+      </button>
+
+      <button 
+        onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === session.id ? null : session.id); }}
+        className={`absolute top-4 right-3 p-1 rounded-md opacity-0 group-hover/item:opacity-100 transition-opacity ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+        </svg>
+      </button>
+
+      {activeMenuId === session.id && (
+        <div className={`absolute right-3 top-10 z-[60] w-40 py-2 rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up origin-top-right border ${isDark ? 'bg-indigo-950/80 border-white/10 shadow-black' : 'bg-white/95 border-slate-200 shadow-slate-200'}`}>
+          <button onClick={(e) => togglePin(session.id, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+            {session.isPinned ? 'Unpin' : 'Pin'}
+          </button>
+          <button onClick={(e) => startRename(session, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+            Rename
+          </button>
+          <button onClick={(e) => deleteSession(session.id, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors hover:bg-rose-500/10 text-rose-500`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* Sidebar Component */}
+      {/* Enhanced Sidebar Component */}
       <aside 
-        className={`fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black/80 border-r border-white/5' : 'bg-white/90 border-r border-slate-200'} backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col`}
+        onClick={() => setActiveMenuId(null)}
+        className={`fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-indigo-950/40 border-r border-white/5 shadow-indigo-900/20' : 'bg-white/95 border-r border-slate-200 shadow-slate-200'} backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col`}
       >
         <div className="p-6 border-b border-white/5 flex items-center justify-between">
-          <h2 className="font-black text-xs uppercase tracking-[0.3em] opacity-40">Study History</h2>
+          <h2 className="font-black text-xs uppercase tracking-[0.3em] opacity-40">History</h2>
           <button onClick={() => setIsSidebarOpen(false)} className="opacity-40 hover:opacity-100 transition-opacity">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
           </button>
         </div>
         
-        <div className="p-4 flex-1 overflow-y-auto space-y-4 custom-scrollbar">
-          <Button theme={theme} variant="outline" className="w-full py-4 rounded-2xl border-white/5 bg-white/5 hover:bg-white/10" onClick={reset}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            New Session
+        <div className="p-4 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
+          <Button theme={theme} variant="outline" className="w-full py-4 rounded-2xl border-white/10 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all font-black text-[10px] tracking-widest" onClick={reset}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+            NEW SESSION
           </Button>
           
-          {savedSessions.length === 0 ? (
-            <div className="text-center py-20 opacity-20 italic text-sm">No saved sessions yet.</div>
-          ) : (
-            savedSessions.map((session) => (
-              <button 
-                key={session.id} 
-                onClick={() => loadSession(session)}
-                className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] group ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/50'}`}
-              >
-                <div className="font-bold text-sm truncate mb-1">{session.fileName}</div>
-                <div className="text-[10px] uppercase tracking-widest opacity-40 font-black">{new Date(session.timestamp).toLocaleDateString()}</div>
-              </button>
-            ))
+          {pinnedSessions.length > 0 && (
+            <div>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2">Pinned</h3>
+              {pinnedSessions.map(session => <SessionItem key={session.id} session={session} />)}
+            </div>
           )}
+
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2">Recent</h3>
+            {recentSessions.length === 0 && pinnedSessions.length === 0 ? (
+              <div className="text-center py-20 opacity-20 italic text-sm">Empty History</div>
+            ) : (
+              recentSessions.map(session => <SessionItem key={session.id} session={session} />)
+            )}
+          </div>
         </div>
       </aside>
 
       {/* Main Container */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0" onClick={() => setActiveMenuId(null)}>
         {isDark && (
           <>
             <div className="glow-orb animate-float fixed top-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -447,7 +550,7 @@ const App: React.FC = () => {
         <header className={`backdrop-blur-2xl border-b sticky top-0 z-30 transition-all duration-500 ${isDark ? 'bg-black/40 border-white/5' : 'bg-white/70 border-slate-200'}`}>
           <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-white/5 rounded-xl transition-all">
+              <button onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(true); }} className="p-2 hover:bg-white/5 rounded-xl transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
               <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
@@ -460,12 +563,6 @@ const App: React.FC = () => {
               <button onClick={toggleTheme} className={`p-2.5 rounded-full transition-all active:scale-90 ${isDark ? 'bg-white/5 text-yellow-400' : 'bg-slate-100 text-indigo-600'}`}>
                 {isDark ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>}
               </button>
-              {(state !== AppState.IDLE || notes.trim().length > 0 || selectedFile) && (
-                <Button theme={theme} variant="ghost" onClick={reset} className="rounded-full px-4 flex items-center gap-2 border border-transparent hover:border-white/10 active:scale-95">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                  <span className="hidden sm:inline font-bold text-xs uppercase tracking-widest">New Session</span>
-                </Button>
-              )}
             </div>
           </div>
         </header>
@@ -496,7 +593,7 @@ const App: React.FC = () => {
                   <Button theme={theme} variant="outline" className="w-full sm:max-w-[200px] py-5 text-lg rounded-2xl border-indigo-600/30 text-indigo-400" onClick={() => fileInputRef.current?.click()}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg> Upload PDF
                   </Button>
-                  <Button theme={theme} className="w-full sm:max-w-md py-5 text-lg rounded-2xl bg-indigo-600" onClick={handleSubmit} disabled={!notes.trim() && !selectedFile}>Generate Guide</Button>
+                  <Button theme={theme} className="w-full sm:max-w-md py-5 text-lg rounded-2xl bg-indigo-600 font-black tracking-widest text-xs uppercase" onClick={handleSubmit} disabled={!notes.trim() && !selectedFile}>Generate Guide</Button>
                 </div>
                 {error && <div className="p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-sm">{error}</div>}
               </div>
@@ -584,14 +681,13 @@ const App: React.FC = () => {
                       <div className="flex gap-3">
                         <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} disabled={isChatLoading} placeholder="Type a question..." className={`flex-1 px-6 py-3.5 rounded-full outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all input-glow-pulse ${isDark ? 'bg-white/5 border border-white/10 text-zinc-100' : 'bg-slate-50 border border-slate-200 text-slate-800'}`} />
                         <button type="submit" disabled={!chatInput.trim() || isChatLoading} className={`p-3.5 rounded-full transition-all flex items-center justify-center hover:scale-[1.05] active:scale-95 ${!chatInput.trim() || isChatLoading ? 'opacity-30 bg-zinc-700' : 'bg-indigo-600 text-white shadow-lg'}`}>
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                         </button>
                       </div>
                     </form>
                   </div>
                 </section>
 
-                {/* Terminology Section */}
                 <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all animate-spring-up delay-400 ${glassCardClass}`}>
                   <div className="flex items-center gap-5 mb-12">
                     <div className="p-3 bg-amber-500/20 text-amber-500 rounded-2xl">
@@ -610,7 +706,6 @@ const App: React.FC = () => {
                 </section>
               </div>
 
-              {/* Sidebar/Quiz Area */}
               <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
                 <div className="sticky top-28">
                   <Quiz questions={studyData.quiz} theme={theme} />
@@ -618,11 +713,11 @@ const App: React.FC = () => {
                   <div className="mt-10 p-10 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-[3rem] text-white shadow-2xl relative overflow-hidden group border border-white/10">
                     <div className="relative z-10">
                       <h4 className="font-black text-2xl mb-4 tracking-tight">Review Session</h4>
-                      <p className="text-indigo-100 text-lg mb-8 leading-relaxed opacity-90">Ready to save your progress?</p>
+                      <p className="text-indigo-100 text-lg mb-8 leading-relaxed opacity-90">Export your materials or start fresh.</p>
                       <div className="space-y-4">
-                        <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl" onClick={reset}>New Session</Button>
-                        <Button theme={theme} variant="primary" className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-xs uppercase tracking-widest flex items-center gap-2" onClick={handleDownloadPDF} isLoading={isDownloading}>
-                          {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} Export Guide
+                        <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
+                        <Button theme={theme} variant="primary" className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2" onClick={handleDownloadPDF} isLoading={isDownloading}>
+                          {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
                         </Button>
                       </div>
                     </div>

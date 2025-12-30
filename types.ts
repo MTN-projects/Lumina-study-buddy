@@ -13,6 +13,7 @@ export interface StudyData {
   summary: string;
   vocabulary: VocabularyItem[];
   quiz: QuizQuestion[];
+  title?: string;
 }
 
 export interface ChatMessage {
@@ -24,9 +25,11 @@ export interface StudySession {
   id: string;
   timestamp: number;
   fileName: string;
+  title: string;
   studyData: StudyData;
   chatMessages: ChatMessage[];
   originalNotes: string;
+  isPinned?: boolean;
 }
 
 export enum AppState {

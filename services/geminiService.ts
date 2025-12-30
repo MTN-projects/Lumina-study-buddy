@@ -15,6 +15,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
     1. Summarize the main argument and core concepts with academic rigor.
     2. Extract exactly 5 of the most important technical terms used in the material.
     3. Generate 3 challenging multiple-choice questions to test comprehension of these concepts.
+    4. Generate a short, professional academic title (3-5 words) for this study material.
 
     ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
   };
@@ -38,6 +39,10 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          title: {
+            type: Type.STRING,
+            description: "A short academic title (3-5 words) summarizing the content.",
+          },
           summary: {
             type: Type.STRING,
             description: "A high-level synthesis of the lecture's main argument and primary concepts (approx 150-200 words).",
@@ -71,7 +76,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
             description: "3 practice questions that require critical thinking based on the provided text.",
           }
         },
-        required: ["summary", "vocabulary", "quiz"]
+        required: ["title", "summary", "vocabulary", "quiz"]
       }
     },
   });
