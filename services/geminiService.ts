@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyData, ChatMessage } from "../types";
 
 export interface FileData {
@@ -8,6 +8,7 @@ export interface FileData {
 
 /**
  * Utility for exponential backoff to handle 429 (Quota) errors.
+ * Retries after 1, 2, and 4 seconds.
  */
 async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   let delay = 1000;
@@ -19,7 +20,7 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promis
       if (isQuotaError && i < maxRetries) {
         console.warn(`Quota exceeded. Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff: 1s, 2s, 4s
+        delay *= 2; 
         continue;
       }
       throw error;
@@ -30,53 +31,41 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promis
 
 /**
  * Summarizes old chat history to maintain context without hitting token limits.
+ * Uses Gemini 3 Flash with minimal thinking for speed.
  */
 async function summarizeOldHistory(history: ChatMessage[]): Promise<string> {
   if (history.length === 0) return "";
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const conversation = history.map(m => `${m.role}: ${m.content}`).join('\n');
+  const conversation = history.map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.content}`).join('\n');
   
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Summarize the following study chat conversation concisely, focusing on the key questions asked and answers provided. Maintain technical context:\n\n${conversation}`,
+    contents: `Summarize the following study session chat history concisely. Focus on the core concepts asked and explained. Keep it technical and brief:\n\n${conversation}`,
     config: {
-      thinkingConfig: { thinkingBudget: 0 } // Minimal thinking for simple summary
+      thinkingConfig: { thinkingBudget: 0 } // Minimal thinking level for background tasks
     }
   });
   
   return response.text || "";
 }
 
+/**
+ * Initial Synthesis: Uses 'Medium' thinking level for high-quality, PhD-level reasoning.
+ */
 export const processLectureNotes = async (content: string, fileData?: FileData): Promise<StudyData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const textPart = {
-    text: `You are an advanced academic assistant with PhD-level reasoning capabilities. 
-    Analyze the provided lecture material (text and/or document) deeply to generate a high-fidelity study guide.
+    text: `You are an advanced academic assistant. Analyze the material to create a PhD-level study guide.
     
-    SUMMARY ENGINE REQUIREMENTS:
-    1. STRUCTURE & DEPTH: 
-       - Generate a detailed, academic summary structured with CLEAR HEADINGS.
-       - Cover 100% of the core concepts found in the document.
-       - Prioritize depth and comprehensive explanation over brevity.
-       - Use an academic tone and technical terminology.
-    
-    2. LANGUAGE MATCHING:
-       - Detect the language and write the entire study guide in that language.
-    
-    3. NO INTRODUCTORY FLUFF:
-       - Start immediately with the first heading.
-    
-    4. CLEAN TEXT POLICY:
-       - Simple text-based headings. ZERO backslashes and NO code blocks.
-    
-    5. ADDITIONAL DATA:
-       - Exactly 10 technical terms with academic definitions.
-       - Exactly 10 challenging multiple-choice questions.
-       - Professional title (3-5 words).
-       - "audio_instruction" for TTS.
+    1. DETAILED SUMMARY: High-fidelity, multi-section summary with bold headings.
+    2. LANGUAGE: Detect source language and use it throughout.
+    3. VOCABULARY: 10 technical terms with academic definitions.
+    4. QUIZ: 10 challenging multiple-choice questions.
+    5. TITLE: Professional 3-5 word title.
+    6. AUDIO: "audio_instruction" for TTS reading.
 
-    ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
+    ${content ? `Context: ${content}` : 'Analyze the attached document.'}`
   };
 
   const parts: any[] = [textPart];
@@ -94,7 +83,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
       model: "gemini-3-flash-preview",
       contents: { parts },
       config: {
-        thinkingConfig: { thinkingBudget: 16000 }, // 'Medium' level reasoning for summary
+        thinkingConfig: { thinkingBudget: 16000 }, // Medium level reasoning for synthesis
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -133,7 +122,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
     });
 
     const text = response.text;
-    if (!text) throw new Error("Failed to generate study data.");
+    if (!text) throw new Error("Synthesis failed.");
     const rawData = JSON.parse(text);
     
     return {
@@ -141,6 +130,69 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
       languageCode: rawData.language_code,
       audioInstruction: rawData.audio_instruction
     } as StudyData;
+  });
+};
+
+/**
+ * Chat Support: Uses Rolling Window Memory and Minimal Thinking for lowest latency.
+ * PINS the PDF summary at the start of the context window.
+ */
+export const askQuestionAboutDocumentStream = async (
+  question: string,
+  history: ChatMessage[],
+  summaryText: string,
+  fileData?: FileData
+) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  // ROLLING WINDOW: Summarize history older than last 10 turns
+  let processedHistory = [...history];
+  let backgroundContext = "";
+  
+  if (history.length > 10) {
+    const olderMessages = history.slice(0, history.length - 10);
+    const recentMessages = history.slice(history.length - 10);
+    const summary = await summarizeOldHistory(olderMessages);
+    backgroundContext = `\nPreviously discussed and established context:\n${summary}`;
+    processedHistory = recentMessages;
+  }
+
+  // HYBRID MEMORY: PIN the Synthesis Summary to the beginning of the prompt context
+  const systemInstruction = `You are Lumina. Use the PINNED CONTEXT below as your primary academic source.
+  
+  [PINNED CONTEXT - SOURCE SUMMARY]:
+  ${summaryText}
+  
+  ${backgroundContext}
+  
+  INSTRUCTIONS:
+  - Answer student queries based strictly on the source material.
+  - If information is missing, use academic reasoning but clarify its absence in the primary text.
+  - Keep answers concise but intellectually rigorous.`;
+
+  const contents = [
+    ...processedHistory.map(m => ({
+      role: m.role,
+      parts: [{ text: m.content }]
+    })),
+    {
+      role: 'user',
+      parts: [
+        { text: question },
+        ...(fileData ? [{ inlineData: { data: fileData.data, mimeType: fileData.mimeType } }] : [])
+      ]
+    }
+  ];
+
+  return retryWithBackoff(async () => {
+    return await ai.models.generateContentStream({
+      model: "gemini-3-flash-preview",
+      contents,
+      config: {
+        systemInstruction,
+        thinkingConfig: { thinkingBudget: 0 } // Minimal level for fast conversational response
+      }
+    });
   });
 };
 
@@ -165,39 +217,3 @@ export const generateSpeech = async (text: string, instruction: string): Promise
     return base64Audio;
   });
 };
-
-export const askQuestionAboutDocumentStream = async (
-  question: string,
-  history: ChatMessage[],
-  contextText: string,
-  contextFile?: FileData
-) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  // ROLLING WINDOW: Keep last 10 messages, summarize older ones
-  let processedHistory = [...history];
-  let condensedContext = "";
-  
-  if (history.length > 10) {
-    const olderMessages = history.slice(0, history.length - 10);
-    const recentMessages = history.slice(history.length - 10);
-    const summary = await summarizeOldHistory(olderMessages);
-    condensedContext = `\nPreviously discussed: ${summary}`;
-    processedHistory = recentMessages;
-  }
-
-  // HYBRID MEMORY: PIN System Instruction and the PDF Summary
-  const systemInstruction = `You are Lumina, a precise academic assistant. 
-  Answer questions based ONLY on the provided material. 
-  CONTEXT PINNED: Below is the core summary of the material. Use it as your primary reference.
-  
-  MATERIAL SUMMARY:
-  ${contextText}
-  ${condensedContext}
-  
-  INSTRUCTIONS:
-  - Keep answers clear and academically focused.
-  - If the answer is not in the material, say so based on what IS available.`;
-
-  const contents = [
-    ...processedHistory.map(
