@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppState, StudyData, ChatMessage, StudySession } from './types';
 import { processLectureNotes, generateSpeech, FileData, askQuestionAboutDocumentStream } from './services/geminiService';
@@ -69,6 +68,11 @@ const App: React.FC = () => {
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
   
+  // Active Reader State (Browser TTS)
+  const [isActiveReaderPlaying, setIsActiveReaderPlaying] = useState(false);
+  const [currentWordIndex, setCurrentWordIndex] = useState(-1);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -202,6 +206,7 @@ const App: React.FC = () => {
   };
 
   const stopAllPlayback = () => {
+    // Stop Premium Voice
     if (sourceRef.current) {
       try { 
         sourceRef.current.onended = null; 
@@ -211,9 +216,59 @@ const App: React.FC = () => {
     }
     playedOffsetRef.current = 0;
     setPlaybackState('idle');
+
+    // Stop Active Reader
+    window.speechSynthesis.cancel();
+    setIsActiveReaderPlaying(false);
+    setCurrentWordIndex(-1);
+  };
+
+  const toggleActiveReader = () => {
+    if (isActiveReaderPlaying) {
+      window.speechSynthesis.pause();
+      setIsActiveReaderPlaying(false);
+      return;
+    }
+
+    if (window.speechSynthesis.paused && utteranceRef.current) {
+      window.speechSynthesis.resume();
+      setIsActiveReaderPlaying(true);
+      return;
+    }
+
+    // Stop Premium Voice if playing
+    if (playbackState === 'playing') {
+      stopAllPlayback();
+    }
+
+    const utterance = new SpeechSynthesisUtterance(summaryText);
+    utterance.lang = studyData?.languageCode || 'en-US';
+    utterance.rate = 1;
+    
+    utterance.onboundary = (event) => {
+      if (event.name === 'word') {
+        const textUpToBoundary = summaryText.substring(0, event.charIndex);
+        const words = textUpToBoundary.trim().split(/\s+/);
+        setCurrentWordIndex(textUpToBoundary.trim() === "" ? 0 : words.length);
+      }
+    };
+
+    utterance.onend = () => {
+      setIsActiveReaderPlaying(false);
+      setCurrentWordIndex(-1);
+    };
+
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setIsActiveReaderPlaying(true);
   };
 
   const togglePremiumVoice = async () => {
+    // Stop Active Reader if playing
+    if (isActiveReaderPlaying) {
+      stopAllPlayback();
+    }
+
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (!audioContextRef.current) audioContextRef.current = ctx;
 
@@ -327,6 +382,28 @@ const App: React.FC = () => {
     ));
   };
 
+  const renderSummaryText = () => {
+    if (currentWordIndex === -1) return summaryText;
+    
+    const words = summaryText.split(/(\s+)/);
+    let wordCounter = 0;
+    
+    return words.map((part, i) => {
+      if (part.trim().length === 0) return part;
+      const isActualWord = /\S/.test(part);
+      const index = isActualWord ? wordCounter++ : -1;
+      
+      return (
+        <span 
+          key={i} 
+          className={`word-span ${index === currentWordIndex ? 'active-word' : ''}`}
+        >
+          {part}
+        </span>
+      );
+    });
+  };
+
   const handleDownloadPDF = async () => {
     if (!studyData || !exportRef.current) return;
     setIsDownloading(true);
@@ -377,7 +454,6 @@ const App: React.FC = () => {
     });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    // Fix: Declare the 'a' variable to resolve the "Cannot find name 'a'" error
     const a = document.createElement('a');
     a.href = url;
     a.download = `${title.replace(/\s+/g, '_')}_Anki.csv`;
@@ -438,7 +514,7 @@ const App: React.FC = () => {
     if (isAudioLoading) return '✨ GENERATING...';
     if (playbackState === 'playing') return 'PAUSE AUDIO';
     if (playbackState === 'paused') return 'RESUME AUDIO';
-    return 'PLAY SUMMARY';
+    return 'PREMIUM VOICE';
   };
 
   const pinnedSessions = savedSessions.filter(s => s.isPinned);
@@ -623,12 +699,21 @@ const App: React.FC = () => {
                         <button 
                           onClick={togglePremiumVoice} 
                           disabled={isAudioLoading} 
-                          className={`px-6 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
+                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
                         >
                           {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>)}
                           <span>{getPlaybackLabel()}</span>
                         </button>
-                        {playbackState !== 'idle' && (
+                        
+                        <button 
+                          onClick={toggleActiveReader} 
+                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase ${isActiveReaderPlaying ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                          <span>ACTIVE READER</span>
+                        </button>
+
+                        {(playbackState !== 'idle' || isActiveReaderPlaying) && (
                           <button onClick={stopAllPlayback} className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all">
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
                           </button>
@@ -638,7 +723,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
-                    {summaryText}
+                    {renderSummaryText()}
                   </div>
                 </section>
 

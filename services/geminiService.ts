@@ -11,36 +11,34 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   
   const textPart = {
     text: `You are an advanced academic assistant with PhD-level reasoning capabilities. 
-    Analyze the provided lecture material (text and/or document) deeply to generate a study guide.
+    Analyze the provided lecture material (text and/or document) deeply to generate a high-fidelity study guide.
     
-    OPTIMIZED SUMMARY RULES:
-    1. LENGTH & STRUCTURE: Provide exactly 3 paragraphs of comprehensive content.
-       - Paragraph 1: Overview of the topic, its historical/theoretical context, and its importance.
-       - Paragraph 2: Deep dive into the core mechanisms, categories, arguments, or evidence (e.g., specific classifications or technical processes).
-       - Paragraph 3: Impact, conclusions, broader implications, and future outlook of the subject.
+    SUMMARY ENGINE REQUIREMENTS:
+    1. STRUCTURE & DEPTH: 
+       - Generate a detailed, academic summary structured with CLEAR HEADINGS.
+       - Cover 100% of the core concepts found in the document.
+       - Prioritize depth and comprehensive explanation over brevity.
+       - Use an academic tone and appropriate technical terminology (e.g., specific scientific, legal, or mathematical terms).
     
-    2. CLEAN TEXT POLICY:
-       - ZERO backslashes, NO newlines (\n), and NO special code symbols.
-       - NO quotation marks (single or double), brackets, or technical symbols.
-       - Use ONLY periods (.) and commas (,).
-       - SENTENCE LENGTH: Keep every single sentence strictly under 15 words for browser stability.
-       - PARAGRAPH SEPARATION: Use a period followed by exactly two spaces (".  ") to separate the 3 paragraphs. Do not use any other markers.
+    2. LANGUAGE MATCHING:
+       - Detect the language of the source material.
+       - Write the entire study guide (Summary, Vocabulary, and Quiz) in that EXACT same language.
+       - If the document is in French, use French. If Arabic, use Arabic (ar-SA). If English, use English.
     
-    3. LANGUAGE & REGION:
-       - Identify the primary language.
-       - If Arabic is detected, you MUST set language_code to "ar-SA".
-       - If French is detected, you MUST set language_code to "fr-FR".
-       - Otherwise, use the standard BCP-47 code (e.g., "en-US").
-
-    4. VOCABULARY:
-       - Extract exactly 10 technical terms (definitions strictly under 15 words).
+    3. NO INTRODUCTORY FLUFF:
+       - Start immediately with the first heading. 
+       - DO NOT say "Here is your summary" or "I have analyzed the document".
     
-    5. QUIZ:
+    4. CLEAN TEXT POLICY:
+       - Use simple text-based headings (e.g., ALL CAPS followed by a line of dashes or double newlines).
+       - ZERO backslashes and NO code blocks.
+       - Use exactly two spaces for paragraph separation if not using headings.
+    
+    5. ADDITIONAL DATA:
+       - Extract exactly 10 technical terms with precise academic definitions.
        - Generate exactly 10 challenging multiple-choice questions (3 easy, 4 medium, 3 hard).
-
-    6. TITLE: 3-5 words, professional academic style.
-
-    7. AUDIO: Provide an "audio_instruction" specifying target accent and tone.
+       - Provide a professional academic title (3-5 words).
+       - Provide "audio_instruction" for the TTS engine (e.g., "Professional academic lecture style, slow pace").
 
     ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
   };
@@ -57,7 +55,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3-pro-preview", // Upgraded to Pro for 100% concept coverage and better reasoning
     contents: { parts },
     config: {
       responseMimeType: "application/json",
@@ -66,19 +64,19 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
         properties: {
           title: {
             type: Type.STRING,
-            description: "A short academic title (3-5 words) summarizing the content.",
+            description: "A short academic title (3-5 words) in the source language.",
           },
           summary: {
             type: Type.STRING,
-            description: "Exactly 3 paragraphs of plain text separated by '.  '. No backslashes, no newlines. Sentences < 15 words.",
+            description: "Detailed academic summary with clear headings and deep coverage. No introductory fluff.",
           },
           language_code: {
             type: Type.STRING,
-            description: "BCP-47 code. Use 'ar-SA' for Arabic and 'fr-FR' for French.",
+            description: "BCP-47 code of the detected language (e.g., 'en-US', 'fr-FR', 'ar-SA').",
           },
           audio_instruction: {
             type: Type.STRING,
-            description: "Target accent and tone for TTS generation.",
+            description: "Tone and accent instructions in English for the TTS engine.",
           },
           vocabulary: {
             type: Type.ARRAY,
@@ -90,7 +88,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
               },
               required: ["word", "definition"]
             },
-            description: "Exactly 10 technical terms.",
+            description: "10 technical terms in the source language.",
           },
           quiz: {
             type: Type.ARRAY,
@@ -106,7 +104,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
               },
               required: ["question", "options", "correctAnswerIndex"]
             },
-            description: "10 practice questions with mixed difficulty.",
+            description: "10 challenging quiz questions in the source language.",
           }
         },
         required: ["title", "summary", "vocabulary", "quiz", "language_code", "audio_instruction"]
@@ -160,9 +158,6 @@ export const askQuestionAboutDocumentStream = async (
   If the answer is not in the material, explain why politely based on what IS in the material.`;
 
   const promptParts: any[] = [];
-  
-  // Only send the document context in the first turn or as a system reference
-  // Here we include it as part of the initial prompt if history is empty
   const initialContext = `Context Material:\n${contextText}`;
 
   const contents = [
@@ -186,7 +181,7 @@ export const askQuestionAboutDocumentStream = async (
   ];
 
   const response = await ai.models.generateContentStream({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3-pro-preview",
     contents: contents as any,
     config: {
       systemInstruction
