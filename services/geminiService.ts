@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyData, ChatMessage } from "../types";
 
@@ -13,14 +14,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
     text: `You are an advanced academic assistant with PhD-level reasoning capabilities. 
     Analyze the provided lecture material (text and/or document) deeply to:
     1. Identify the primary language of the content.
-    2. Summarize the main argument and core concepts with extreme depth and academic rigor:
-       - Length Requirement: Provide a comprehensive synthesis consisting of exactly 5 detailed paragraphs.
-       - Structure:
-         - Paragraph 1: Overview and core thesis of the document.
-         - Paragraph 2-4: Deep dive into the main sections, arguments, and evidence, explaining the "how" and "why" with high information density.
-         - Paragraph 5: Conclusions, implications, and broader academic context.
-       - Formatting: Use exactly two newline characters (\\n\\n) to separate each paragraph for proper UI rendering.
-       - Tone: Use professional, sophisticated academic language.
+    2. Summarize the main argument and core concepts with academic rigor.
     3. Extract exactly 10 of the most important terms used in the material:
        - Select the 5 most critical high-level concepts.
        - Select 5 specific technical terms or 'hidden' details that are likely to be on a test.
@@ -61,7 +55,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
           },
           summary: {
             type: Type.STRING,
-            description: "A comprehensive 5-paragraph academic synthesis. Paragraphs must be separated by \\n\\n.",
+            description: "A high-level synthesis of the lecture's main argument and primary concepts.",
           },
           language_code: {
             type: Type.STRING,
@@ -122,6 +116,7 @@ export const generateSpeech = async (text: string, instruction: string): Promise
     model: "gemini-2.5-flash-preview-tts",
     contents: [{ parts: [{ text: `${instruction}: ${text}` }] }],
     config: {
+      // Use Modality enum for audio generation
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
@@ -156,7 +151,7 @@ export const askQuestionAboutDocumentStream = async (
     if (contextFile) {
       promptParts.push({
         inlineData: {
-          data: contextFile.data,
+          data: contextFile.base64,
           mimeType: contextFile.mimeType
         }
       });
