@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyData, ChatMessage } from "../types";
 
 export interface FileData {
@@ -12,13 +13,19 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   const textPart = {
     text: `You are an advanced academic assistant with PhD-level reasoning capabilities. 
     Analyze the provided lecture material (text and/or document) deeply to:
-    1. Summarize the main argument and core concepts with academic rigor.
-    2. Extract exactly 5 of the most important technical terms used in the material.
-    3. Generate exactly 10 challenging multiple-choice questions to test comprehension. 
+    1. Identify the primary language of the content.
+    2. Summarize the main argument and core concepts with academic rigor.
+    3. Extract exactly 10 of the most important terms used in the material:
+       - Select the 5 most critical high-level concepts.
+       - Select 5 specific technical terms or 'hidden' details that are likely to be on a test.
+       - DEFINITION STYLE: Definitions must be strictly under 15 words each. Keep them punchy and compact.
+    4. Generate exactly 10 challenging multiple-choice questions to test comprehension. 
        - Every time a quiz is generated, select different key concepts from the document to ensure variety. 
        - Difficulty Mix: Provide exactly 3 easy, 4 medium, and 3 hard questions to create a professional learning curve.
        - Do not repeat questions or concepts from previous attempts.
-    4. Generate a short, professional academic title (3-5 words) for this study material.
+    5. Generate a short, professional academic title (3-5 words) for this study material.
+    6. Provide a "language_code" (BCP-47 string, e.g., 'en-US', 'fr-FR', 'ar-MA').
+    7. Provide an "audio_instruction" specifying target accent and tone (e.g., 'Speak in a clear American English accent with a helpful academic tone').
 
     ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
   };
@@ -48,7 +55,15 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
           },
           summary: {
             type: Type.STRING,
-            description: "A high-level synthesis of the lecture's main argument and primary concepts (approx 150-200 words).",
+            description: "A high-level synthesis of the lecture's main argument and primary concepts.",
+          },
+          language_code: {
+            type: Type.STRING,
+            description: "A standard BCP-47 language code string.",
+          },
+          audio_instruction: {
+            type: Type.STRING,
+            description: "Target accent and tone for TTS generation.",
           },
           vocabulary: {
             type: Type.ARRAY,
@@ -60,7 +75,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
               },
               required: ["word", "definition"]
             },
-            description: "The top 5 most critical technical terms identified from the notes.",
+            description: "Exactly 10 technical terms and concepts with definitions under 15 words.",
           },
           quiz: {
             type: Type.ARRAY,
@@ -79,23 +94,30 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
             description: "10 practice questions with a mix of easy (3), medium (4), and hard (3) difficulties.",
           }
         },
-        required: ["title", "summary", "vocabulary", "quiz"]
+        required: ["title", "summary", "vocabulary", "quiz", "language_code", "audio_instruction"]
       }
     },
   });
 
   const text = response.text;
   if (!text) throw new Error("Failed to generate study data.");
-  return JSON.parse(text) as StudyData;
+  const rawData = JSON.parse(text);
+  
+  return {
+    ...rawData,
+    languageCode: rawData.language_code,
+    audioInstruction: rawData.audio_instruction
+  } as StudyData;
 };
 
-export const generateSpeech = async (text: string): Promise<string> => {
+export const generateSpeech = async (text: string, instruction: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Read this academic summary clearly and at a moderate pace: ${text}` }] }],
+    contents: [{ parts: [{ text: `${instruction}: ${text}` }] }],
     config: {
-      responseModalities: ["AUDIO"],
+      // Use Modality enum for audio generation
+      responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
           prebuiltVoiceConfig: { voiceName: 'Zephyr' },
@@ -129,7 +151,7 @@ export const askQuestionAboutDocumentStream = async (
     if (contextFile) {
       promptParts.push({
         inlineData: {
-          data: contextFile.data,
+          data: contextFile.base64,
           mimeType: contextFile.mimeType
         }
       });

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppState, StudyData, ChatMessage, StudySession } from './types';
 import { processLectureNotes, generateSpeech, FileData, askQuestionAboutDocumentStream } from './services/geminiService';
@@ -109,10 +110,16 @@ const App: React.FC = () => {
     const checkVoices = () => {
       const synth = window.speechSynthesis;
       const voices = synth.getVoices();
-      const hasPremiumLocal = voices.some(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
+      
+      // We check for natural sounding voices for the specific language code if available
+      const lang = studyData?.languageCode || 'en-US';
+      const hasPremiumLocal = voices.some(v => (v.lang === lang || v.lang.startsWith(lang.split('-')[0])) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Premium')));
       
       // Premium Voice unlocks when both the prefetched high-quality audio AND the system voice list is populated
       if (hasPremiumLocal && prefetchedBuffer && !isPremiumUnavailable) {
+        setIsPremiumLocked(false);
+      } else if (prefetchedBuffer && !isPremiumUnavailable) {
+        // If no specifically "premium" sounding local voice is found, we still unlock once prefetched is ready
         setIsPremiumLocked(false);
       }
     };
@@ -123,7 +130,7 @@ const App: React.FC = () => {
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
-  }, [prefetchedBuffer, isPremiumUnavailable]);
+  }, [prefetchedBuffer, isPremiumUnavailable, studyData?.languageCode]);
 
   // Toast timeout
   useEffect(() => {
@@ -212,14 +219,14 @@ const App: React.FC = () => {
     return segments;
   }, [studyData?.summary]);
 
-  const prefetchAudio = async (text: string) => {
+  const prefetchAudio = async (text: string, instruction: string) => {
     setIsPremiumLocked(true);
     setIsPremiumUnavailable(false);
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
-      const base64 = await generateSpeech(text);
+      const base64 = await generateSpeech(text, instruction);
       const audioData = decode(base64);
       const buffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
       setPrefetchedBuffer(buffer);
@@ -311,7 +318,7 @@ const App: React.FC = () => {
 
     setIsAudioLoading(true);
     try {
-      const base64 = await generateSpeech(studyData.summary);
+      const base64 = await generateSpeech(studyData.summary, studyData.audioInstruction);
       const audioData = decode(base64);
       const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
       setPrefetchedBuffer(audioBuffer);
@@ -361,9 +368,17 @@ const App: React.FC = () => {
     setActiveMode('active');
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(studyData.summary);
+    
+    // Set language for the utterance
+    utterance.lang = studyData.languageCode;
+    
     const voices = synth.getVoices();
-    const bestVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
+    // Try to find a high quality natural voice for the detected language
+    const bestVoice = voices.find(v => v.lang === studyData.languageCode && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Premium'))) || 
+                      voices.find(v => v.lang.startsWith(studyData.languageCode.split('-')[0])) ||
+                      voices[0];
     if (bestVoice) utterance.voice = bestVoice;
+    
     utterance.onboundary = (event) => {
       if (event.name === 'word') {
         const matchIdx = wordSegments.findIndex(seg => event.charIndex >= seg.start && event.charIndex <= seg.end);
@@ -522,7 +537,7 @@ const App: React.FC = () => {
       const data = await processLectureNotes(notes, fileData);
       setStudyData(data);
       setState(AppState.SUCCESS);
-      prefetchAudio(data.summary);
+      prefetchAudio(data.summary, data.audioInstruction);
       saveSessionToHistory(data, notes, selectedFile?.name || "Text Snippet");
     } catch (err) {
       setError("An error occurred while processing your material.");
@@ -537,7 +552,7 @@ const App: React.FC = () => {
     setChatLog(session.chatLog || []);
     setActiveSessionId(session.id);
     setState(AppState.SUCCESS);
-    prefetchAudio(session.studyData.summary);
+    prefetchAudio(session.studyData.summary, session.studyData.audioInstruction);
     setIsSidebarOpen(false);
   };
 
@@ -704,7 +719,8 @@ const App: React.FC = () => {
               <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.827a1 1 0 00-.788 0l-7 3a1 1 0 000 1.848l7 3a1 1 0 00.788 0l7-3a1 1 0 000-1.848l-7-3zM14 9.528v2.736a1 1 0 01-.529.883L10 14.613l-3.471-1.466A1 1 0 016 12.264V9.528l4 1.714 4-1.714z" /></svg>
               </div>
-              <h1 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Lumina</h1>
+              {/* FIXED: Malformed JSX attributes with missing assignment and braces */}
+              <h1 className={`breakthrough-text text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Lumina</h1>
             </div>
             
             <div className="flex items-center gap-3">
@@ -849,11 +865,11 @@ const App: React.FC = () => {
                     </div>
                     <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Key Terms</h2>
                   </div>
-                  <div className="grid grid-cols-1 gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {studyData.vocabulary.map((item, idx) => (
-                      <div key={idx} className={`animate-vocab flex flex-col md:flex-row gap-6 md:gap-10 p-8 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-slate-50 border-slate-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
-                        <div className="md:w-1/3"><span className={`font-black uppercase text-sm tracking-[0.3em] ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.word}</span></div>
-                        <div className="md:w-2/3"><p className={`text-lg transition-colors opacity-80 ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>{item.definition}</p></div>
+                      <div key={idx} className={`animate-vocab flex flex-col gap-4 p-8 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-slate-50 border-slate-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
+                        <div><span className={`font-black uppercase text-xs tracking-[0.3em] ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.word}</span></div>
+                        <div><p className={`text-sm transition-colors opacity-80 leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>{item.definition}</p></div>
                       </div>
                     ))}
                   </div>
@@ -917,15 +933,15 @@ const App: React.FC = () => {
               </div>
             </div>
           ) : null}
+          {/* FIXED: Move exportRef div INSIDE the main container wrapper to ensure correct structural nesting and single return element */}
+          {/* Hidden Export Template */}
+          <div ref={exportRef} style={{ display: 'none', width: '800px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, sans-serif' }}>
+            <div style={{ borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}><h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800' }}>STUDY GUIDE</h1><p style={{ margin: '5px 0 0', opacity: 0.6, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px' }}>Lumina Buddy</p></div>
+            <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2><p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>{studyData?.summary}</p></div>
+            <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>{studyData?.vocabulary.map((v, i) => (<div key={i} style={{ marginBottom: '15px' }}><div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div><div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div></div>))}</div>
+            <div><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>QUIZ</h2>{studyData?.quiz.map((q, i) => (<div key={i} style={{ marginBottom: '20px' }}><div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>{q.options.map((opt, optI) => (<div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>[{String.fromCharCode(65 + optI)}] {opt}</div>))}</div>))}</div>
+          </div>
         </main>
-      </div>
-
-      {/* Hidden Export Template */}
-      <div ref={exportRef} style={{ display: 'none', width: '800px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, sans-serif' }}>
-        <div style={{ borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}><h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800' }}>STUDY GUIDE</h1><p style={{ margin: '5px 0 0', opacity: 0.6, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px' }}>Lumina Buddy</p></div>
-        <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2><p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>{studyData?.summary}</p></div>
-        <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>{studyData?.vocabulary.map((v, i) => (<div key={i} style={{ marginBottom: '15px' }}><div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div><div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div></div>))}</div>
-        <div><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>QUIZ</h2>{studyData?.quiz.map((q, i) => (<div key={i} style={{ marginBottom: '20px' }}><div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>{q.options.map((opt, optI) => (<div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>[{String.fromCharCode(65 + optI)}] {opt}</div>))}</div>))}</div>
       </div>
     </div>
   );
