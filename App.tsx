@@ -404,29 +404,81 @@ const App: React.FC = () => {
     });
   };
 
-  const handleDownloadPDF = async () => {
+  const handleDownloadPDF = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!studyData || !exportRef.current) return;
     setIsDownloading(true);
     setIsExportMenuOpen(false);
+    
     try {
       const element = exportRef.current;
+      
+      // Professional multi-page PDF rendering setup
+      element.style.position = 'fixed';
+      element.style.top = '0';
+      element.style.left = '0';
+      element.style.width = '794px'; // A4 width in pixels at 96 DPI
+      element.style.transform = 'translateX(-200%)'; // Move far off screen
       element.style.display = 'block';
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), (canvas.height * pdf.internal.pageSize.getWidth()) / canvas.width);
-      pdf.save(`${studyData.title || 'Lumina_Study_Guide'}.pdf`);
+      element.style.background = '#ffffff';
+      
+      // Wait for layout to settle
+      await new Promise(r => setTimeout(r, 200));
+
+      const canvas = await html2canvas(element, { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 794
+      });
+      
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
+      
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvasHeight * pdfWidth) / canvasWidth;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // First page
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      // Subsequent pages if content overflows
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+      
+      pdf.save(`${studyData.title?.replace(/\s+/g, '_') || 'Lumina_Study_Guide'}.pdf`);
+      
       element.style.display = 'none';
+      element.style.position = '';
+      element.style.transform = '';
     } catch (err) {
-      console.error(err);
-    } finally { setIsDownloading(false); }
+      console.error("Professional PDF Export failed:", err);
+      setError("Failed to generate PDF. Please try again.");
+    } finally { 
+      setIsDownloading(false); 
+    }
   };
 
-  const handleExportToNotion = () => {
+  const handleExportToNotion = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!studyData) return;
     setIsExportMenuOpen(false);
     const title = studyData.title || 'Study Guide';
-    const content = `# ${title}\n\n## Summary\n${summaryText}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}`;
+    const content = `# ${title}\n\n## Summary\n${summaryText}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}\n\n## Quiz Questions\n${studyData.quiz.map((q, i) => `${i+1}. ${q.question}\n   - Correct Answer: ${q.options[q.correctAnswerIndex]}`).join('\n')}`;
     
     const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -437,26 +489,30 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportToAnki = () => {
+  const handleExportToAnki = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!studyData) return;
     setIsExportMenuOpen(false);
     const title = studyData.title || 'Study_Guide';
     let csv = "Front,Back\n";
+    
     studyData.vocabulary.forEach(v => {
       const front = v.word.replace(/"/g, '""');
       const back = v.definition.replace(/"/g, '""');
       csv += `"${front}","${back}"\n`;
     });
+    
     studyData.quiz.forEach((q, i) => {
-      const front = `Question ${i+1}: ${q.question}`.replace(/"/g, '""');
+      const front = `Question: ${q.question}`.replace(/"/g, '""');
       const back = `Correct Answer: ${q.options[q.correctAnswerIndex]}`.replace(/"/g, '""');
       csv += `"${front}","${back}"\n`;
     });
+    
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}_Anki.csv`;
+    a.download = `${title.replace(/\s+/g, '_')}_Anki_Deck.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -578,6 +634,8 @@ const App: React.FC = () => {
       )}
     </div>
   );
+
+  const isRTL = studyData?.languageCode?.startsWith('ar') || false;
 
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
@@ -802,21 +860,39 @@ const App: React.FC = () => {
               <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
                 <div className="sticky top-28">
                   <Quiz questions={studyData.quiz} theme={theme} />
-                  <div className="mt-10 p-10 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-[3rem] text-white shadow-2xl relative overflow-hidden group border border-white/10">
+                  <div className="mt-10 p-10 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-[3rem] text-white shadow-2xl relative group border border-white/10">
                     <div className="relative z-10">
                       <h4 className="font-black text-2xl mb-4 tracking-tight">Review Session</h4>
-                      <div className="space-y-4">
+                      <div className="space-y-4 relative">
                         <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
-                        <Button theme={theme} variant="primary" className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2 justify-center" onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }} isLoading={isDownloading}>
-                          {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
-                        </Button>
-                        {isExportMenuOpen && (
-                          <div className={`absolute bottom-full mb-2 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden ${isDark ? 'bg-indigo-950/90 border-white/10' : 'bg-white/95 border-slate-200'}`}>
-                            <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>PDF Document</button>
-                            <button onClick={handleExportToNotion} className="w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t border-white/5">Notion (.md)</button>
-                            <button onClick={handleExportToAnki} className="w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t border-white/5">Flashcards (.csv)</button>
-                          </div>
-                        )}
+                        <div className="relative">
+                          <Button 
+                            theme={theme} 
+                            variant="primary" 
+                            className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2 justify-center" 
+                            onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }} 
+                            isLoading={isDownloading}
+                          >
+                            {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
+                          </Button>
+                          
+                          {isExportMenuOpen && (
+                            <div className={`absolute bottom-full mb-3 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden z-[100] ${isDark ? 'bg-indigo-950/95 border-white/10' : 'bg-white/95 border-slate-200'}`}>
+                              <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                PDF Document
+                              </button>
+                              <button onClick={handleExportToNotion} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-100 border-slate-100 text-slate-700'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                Notion (.md)
+                              </button>
+                              <button onClick={handleExportToAnki} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-100 border-slate-100 text-slate-700'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                Flashcards (.csv)
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -824,14 +900,83 @@ const App: React.FC = () => {
               </div>
             </div>
           ) : null}
-          <div ref={exportRef} style={{ display: 'none', width: '800px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, sans-serif' }}>
-            <h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800', borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}>STUDY GUIDE</h1>
-            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2>
-            <p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{summaryText}</p>
-            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>
-            {studyData?.vocabulary.map((v, i) => (<div key={i} style={{ marginBottom: '15px' }}><div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div><div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div></div>))}
-            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>QUIZ</h2>
-            {studyData?.quiz.map((q, i) => (<div key={i} style={{ marginBottom: '20px' }}><div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>{q.options.map((opt, optI) => (<div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>[{String.fromCharCode(65 + optI)}] {opt}</div>))}</div>))}
+          
+          {/* Professional PDF Export Container */}
+          <div 
+            ref={exportRef} 
+            dir={isRTL ? "rtl" : "ltr"}
+            style={{ 
+              display: 'none', 
+              width: '794px', 
+              padding: '50pt', 
+              backgroundColor: '#ffffff', 
+              color: '#000000', 
+              fontFamily: "'Inter', sans-serif",
+              textAlign: isRTL ? 'right' : 'left'
+            }}
+          >
+            <div style={{ borderBottom: '3pt solid #312e81', paddingBottom: '20pt', marginBottom: '30pt' }}>
+              <h1 style={{ fontSize: '28pt', margin: '0', fontWeight: '900', color: '#1a1a1a', letterSpacing: '-0.02em', textTransform: 'uppercase' }}>
+                {studyData?.title || 'Academic Study Guide'}
+              </h1>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10pt', opacity: 0.5, fontSize: '10pt', fontWeight: '700' }}>
+                <span>{new Date().toLocaleDateString()}</span>
+                <span>Generated by Lumina AI</span>
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: '40pt' }}>
+              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+                Executive Summary
+              </h2>
+              <div style={{ fontSize: '11pt', lineHeight: '1.7', color: '#333333', whiteSpace: 'pre-wrap' }}>
+                {summaryText}
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: '40pt' }}>
+              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+                Key Technical Vocabulary
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15pt' }}>
+                {studyData?.vocabulary.map((v, i) => (
+                  <div key={i} style={{ breakInside: 'avoid' }}>
+                    <div style={{ fontWeight: '800', fontSize: '10pt', color: '#1a1a1a', marginBottom: '3pt', textTransform: 'uppercase' }}>
+                      {i + 1}. {v.word}
+                    </div>
+                    <div style={{ fontSize: '10pt', lineHeight: '1.5', color: '#555555' }}>
+                      {v.definition}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ breakBefore: 'page', marginTop: '40pt' }}>
+              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+                Practice Assessment
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '25pt' }}>
+                {studyData?.quiz.map((q, i) => (
+                  <div key={i} style={{ breakInside: 'avoid', padding: '15pt', backgroundColor: '#f8f9fa', borderRadius: '8pt' }}>
+                    <div style={{ fontWeight: '800', fontSize: '11pt', marginBottom: '10pt', color: '#111827' }}>
+                      {i + 1}. {q.question}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5pt', marginLeft: isRTL ? '0' : '20pt', marginRight: isRTL ? '20pt' : '0' }}>
+                      {q.options.map((opt, optI) => (
+                        <div key={optI} style={{ fontSize: '10pt', color: '#4b5563' }}>
+                          <span style={{ fontWeight: '700', color: '#6366f1', marginRight: '5pt' }}>{String.fromCharCode(65 + optI)}.</span>
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: '10pt', paddingTop: '10pt', borderTop: '1px solid #e5e7eb', fontSize: '9pt', fontWeight: '700', color: '#059669', textTransform: 'uppercase' }}>
+                      Correct Option: {String.fromCharCode(65 + q.correctAnswerIndex)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </main>
       </div>

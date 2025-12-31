@@ -1,9 +1,50 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { StudyData, ChatMessage } from "../types";
 
 export interface FileData {
   data: string;
   mimeType: string;
+}
+
+/**
+ * Utility for exponential backoff to handle 429 (Quota) errors.
+ */
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let delay = 1000;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isQuotaError = error?.message?.includes('429') || error?.status === 429;
+      if (isQuotaError && i < maxRetries) {
+        console.warn(`Quota exceeded. Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff: 1s, 2s, 4s
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
+
+/**
+ * Summarizes old chat history to maintain context without hitting token limits.
+ */
+async function summarizeOldHistory(history: ChatMessage[]): Promise<string> {
+  if (history.length === 0) return "";
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const conversation = history.map(m => `${m.role}: ${m.content}`).join('\n');
+  
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Summarize the following study chat conversation concisely, focusing on the key questions asked and answers provided. Maintain technical context:\n\n${conversation}`,
+    config: {
+      thinkingConfig: { thinkingBudget: 0 } // Minimal thinking for simple summary
+    }
+  });
+  
+  return response.text || "";
 }
 
 export const processLectureNotes = async (content: string, fileData?: FileData): Promise<StudyData> => {
@@ -18,33 +59,27 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
        - Generate a detailed, academic summary structured with CLEAR HEADINGS.
        - Cover 100% of the core concepts found in the document.
        - Prioritize depth and comprehensive explanation over brevity.
-       - Use an academic tone and appropriate technical terminology (e.g., specific scientific, legal, or mathematical terms).
+       - Use an academic tone and technical terminology.
     
     2. LANGUAGE MATCHING:
-       - Detect the language of the source material.
-       - Write the entire study guide (Summary, Vocabulary, and Quiz) in that EXACT same language.
-       - If the document is in French, use French. If Arabic, use Arabic (ar-SA). If English, use English.
+       - Detect the language and write the entire study guide in that language.
     
     3. NO INTRODUCTORY FLUFF:
-       - Start immediately with the first heading. 
-       - DO NOT say "Here is your summary" or "I have analyzed the document".
+       - Start immediately with the first heading.
     
     4. CLEAN TEXT POLICY:
-       - Use simple text-based headings (e.g., ALL CAPS followed by a line of dashes or double newlines).
-       - ZERO backslashes and NO code blocks.
-       - Use exactly two spaces for paragraph separation if not using headings.
+       - Simple text-based headings. ZERO backslashes and NO code blocks.
     
     5. ADDITIONAL DATA:
-       - Extract exactly 10 technical terms with precise academic definitions.
-       - Generate exactly 10 challenging multiple-choice questions (3 easy, 4 medium, 3 hard).
-       - Provide a professional academic title (3-5 words).
-       - Provide "audio_instruction" for the TTS engine (e.g., "Professional academic lecture style, slow pace").
+       - Exactly 10 technical terms with academic definitions.
+       - Exactly 10 challenging multiple-choice questions.
+       - Professional title (3-5 words).
+       - "audio_instruction" for TTS.
 
     ${content ? `Additional Text Notes: ${content}` : 'Please analyze the attached document.'}`
   };
 
   const parts: any[] = [textPart];
-  
   if (fileData) {
     parts.push({
       inlineData: {
@@ -54,93 +89,81 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
     });
   }
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview", // Upgraded to Pro for 100% concept coverage and better reasoning
-    contents: { parts },
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: {
-            type: Type.STRING,
-            description: "A short academic title (3-5 words) in the source language.",
-          },
-          summary: {
-            type: Type.STRING,
-            description: "Detailed academic summary with clear headings and deep coverage. No introductory fluff.",
-          },
-          language_code: {
-            type: Type.STRING,
-            description: "BCP-47 code of the detected language (e.g., 'en-US', 'fr-FR', 'ar-SA').",
-          },
-          audio_instruction: {
-            type: Type.STRING,
-            description: "Tone and accent instructions in English for the TTS engine.",
-          },
-          vocabulary: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                word: { type: Type.STRING },
-                definition: { type: Type.STRING }
-              },
-              required: ["word", "definition"]
-            },
-            description: "10 technical terms in the source language.",
-          },
-          quiz: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                question: { type: Type.STRING },
-                options: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
+  return retryWithBackoff(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: { parts },
+      config: {
+        thinkingConfig: { thinkingBudget: 16000 }, // 'Medium' level reasoning for summary
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            language_code: { type: Type.STRING },
+            audio_instruction: { type: Type.STRING },
+            vocabulary: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  word: { type: Type.STRING },
+                  definition: { type: Type.STRING }
                 },
-                correctAnswerIndex: { type: Type.INTEGER }
-              },
-              required: ["question", "options", "correctAnswerIndex"]
+                required: ["word", "definition"]
+              }
             },
-            description: "10 challenging quiz questions in the source language.",
-          }
-        },
-        required: ["title", "summary", "vocabulary", "quiz", "language_code", "audio_instruction"]
-      }
-    },
-  });
+            quiz: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  question: { type: Type.STRING },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  correctAnswerIndex: { type: Type.INTEGER }
+                },
+                required: ["question", "options", "correctAnswerIndex"]
+              }
+            }
+          },
+          required: ["title", "summary", "vocabulary", "quiz", "language_code", "audio_instruction"]
+        }
+      },
+    });
 
-  const text = response.text;
-  if (!text) throw new Error("Failed to generate study data.");
-  const rawData = JSON.parse(text);
-  
-  return {
-    ...rawData,
-    languageCode: rawData.language_code,
-    audioInstruction: rawData.audio_instruction
-  } as StudyData;
+    const text = response.text;
+    if (!text) throw new Error("Failed to generate study data.");
+    const rawData = JSON.parse(text);
+    
+    return {
+      ...rawData,
+      languageCode: rawData.language_code,
+      audioInstruction: rawData.audio_instruction
+    } as StudyData;
+  });
 };
 
 export const generateSpeech = async (text: string, instruction: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `${instruction}: ${text}` }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+  return retryWithBackoff(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: `${instruction}: ${text}` }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+          },
         },
       },
-    },
-  });
+    });
 
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Audio) throw new Error("Audio generation failed.");
-  return base64Audio;
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) throw new Error("Audio generation failed.");
+    return base64Audio;
+  });
 };
 
 export const askQuestionAboutDocumentStream = async (
@@ -151,42 +174,30 @@ export const askQuestionAboutDocumentStream = async (
 ) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const systemInstruction = `You are Lumina, a helpful and precise study assistant. 
-  Answer questions based ONLY on the provided document content. 
-  The conversation history is provided so you can understand follow-up questions.
-  Keep answers clear, concise, and academically focused. 
-  If the answer is not in the material, explain why politely based on what IS in the material.`;
+  // ROLLING WINDOW: Keep last 10 messages, summarize older ones
+  let processedHistory = [...history];
+  let condensedContext = "";
+  
+  if (history.length > 10) {
+    const olderMessages = history.slice(0, history.length - 10);
+    const recentMessages = history.slice(history.length - 10);
+    const summary = await summarizeOldHistory(olderMessages);
+    condensedContext = `\nPreviously discussed: ${summary}`;
+    processedHistory = recentMessages;
+  }
 
-  const promptParts: any[] = [];
-  const initialContext = `Context Material:\n${contextText}`;
+  // HYBRID MEMORY: PIN System Instruction and the PDF Summary
+  const systemInstruction = `You are Lumina, a precise academic assistant. 
+  Answer questions based ONLY on the provided material. 
+  CONTEXT PINNED: Below is the core summary of the material. Use it as your primary reference.
+  
+  MATERIAL SUMMARY:
+  ${contextText}
+  ${condensedContext}
+  
+  INSTRUCTIONS:
+  - Keep answers clear and academically focused.
+  - If the answer is not in the material, say so based on what IS available.`;
 
   const contents = [
-    ...(history.length === 0 ? [] : history.map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.content }]
-    }))),
-    {
-      role: 'user',
-      parts: [
-        ...(history.length === 0 ? [{ text: initialContext }] : []),
-        ...(contextFile && history.length === 0 ? [{
-          inlineData: {
-            data: contextFile.data,
-            mimeType: contextFile.mimeType
-          }
-        }] : []),
-        { text: question }
-      ]
-    }
-  ];
-
-  const response = await ai.models.generateContentStream({
-    model: "gemini-3-pro-preview",
-    contents: contents as any,
-    config: {
-      systemInstruction
-    }
-  });
-
-  return response;
-};
+    ...processedHistory.map(

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { QuizQuestion } from '../types';
 import { Button } from './Button';
 
@@ -7,14 +8,59 @@ interface QuizProps {
   theme?: 'light' | 'dark';
 }
 
+/**
+ * Fisher-Yates Shuffle Algorithm
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+}
+
 export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
+  const [shuffledQuestions, setShuffledQuestions] = useState<QuizQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
   const [showResults, setShowResults] = useState(false);
 
+  // Initialize and shuffle questions on mount or when source questions change
+  useEffect(() => {
+    handleShuffleAndReset();
+  }, [questions]);
+
+  const handleShuffleAndReset = () => {
+    // 1. Shuffle the order of questions
+    const questionOrder = shuffleArray(questions);
+
+    // 2. For each question, shuffle its options while maintaining the correct answer reference
+    const fullyShuffled = questionOrder.map(q => {
+      const optionsWithMetadata = q.options.map((opt, idx) => ({
+        text: opt,
+        isCorrect: idx === q.correctAnswerIndex
+      }));
+
+      const shuffledOptions = shuffleArray(optionsWithMetadata);
+      const newCorrectIndex = shuffledOptions.findIndex(o => o.isCorrect);
+
+      return {
+        ...q,
+        options: shuffledOptions.map(o => o.text),
+        correctAnswerIndex: newCorrectIndex
+      };
+    });
+
+    setShuffledQuestions(fullyShuffled);
+    setCurrentQuestionIndex(0);
+    setSelectedAnswers({});
+    setShowResults(false);
+  };
+
   const isDark = theme === 'dark';
-  const currentQuestion = questions[currentQuestionIndex];
-  const isLastQuestion = currentQuestionIndex === questions.length - 1;
+  const currentQuestion = shuffledQuestions[currentQuestionIndex];
+  const isLastQuestion = currentQuestionIndex === shuffledQuestions.length - 1;
 
   const handleSelectOption = (index: number) => {
     if (showResults) return;
@@ -29,7 +75,7 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
     }
   };
 
-  const score = questions.reduce((acc, q, idx) => {
+  const score = shuffledQuestions.reduce((acc, q, idx) => {
     return selectedAnswers[idx] === q.correctAnswerIndex ? acc + 1 : acc;
   }, 0);
 
@@ -37,21 +83,23 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
     ? "bg-zinc-900/60 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/40" 
     : "bg-white/80 backdrop-blur-xl border border-slate-200 shadow-xl shadow-slate-200/50";
 
+  if (!currentQuestion && shuffledQuestions.length === 0) return null;
+
   if (showResults) {
     return (
       <div className={`${glassClass} p-6 rounded-[2.5rem] transition-all duration-300 max-h-[85vh] flex flex-col`}>
         <div className="text-center mb-6">
-          <div className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${score === questions.length ? 'bg-green-500/20 text-green-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
-            <span className="text-2xl font-black">{Math.round((score / questions.length) * 100)}%</span>
+          <div className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${score === shuffledQuestions.length ? 'bg-green-500/20 text-green-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+            <span className="text-2xl font-black">{Math.round((score / shuffledQuestions.length) * 100)}%</span>
           </div>
           <h3 className={`text-2xl font-black ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>Review Performance</h3>
           <p className={`mt-1 font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-            You correctly answered {score} of {questions.length} questions
+            You correctly answered {score} of {shuffledQuestions.length} questions
           </p>
         </div>
         
         <div className="flex-1 overflow-y-auto pr-2 space-y-6 mb-6 custom-scrollbar">
-          {questions.map((q, qIdx) => {
+          {shuffledQuestions.map((q, qIdx) => {
             const isCorrect = selectedAnswers[qIdx] === q.correctAnswerIndex;
             return (
               <div key={qIdx} className={`p-5 rounded-3xl border ${isDark ? 'bg-zinc-800/30 border-white/5' : 'bg-slate-50 border-slate-200/50'}`}>
@@ -115,12 +163,8 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
           })}
         </div>
 
-        <Button theme={theme} className="w-full rounded-2xl py-4 font-black uppercase tracking-widest text-xs" onClick={() => {
-          setShowResults(false);
-          setCurrentQuestionIndex(0);
-          setSelectedAnswers({});
-        }}>
-          Retake Practice Quiz
+        <Button theme={theme} className="w-full rounded-2xl py-4 font-black uppercase tracking-widest text-xs" onClick={handleShuffleAndReset}>
+          Retake Practice Quiz (Shuffle)
         </Button>
       </div>
     );
@@ -131,7 +175,7 @@ export const Quiz: React.FC<QuizProps> = ({ questions, theme = 'dark' }) => {
       <div className="flex justify-between items-center mb-6">
         <h3 className={`text-lg font-bold ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>Practice Quiz</h3>
         <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-zinc-500 bg-white/5' : 'text-slate-400 bg-slate-100'} px-2.5 py-1 rounded-full`}>
-          Q{currentQuestionIndex + 1} OF {questions.length}
+          Q{currentQuestionIndex + 1} OF {shuffledQuestions.length}
         </span>
       </div>
 
