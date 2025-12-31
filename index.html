@@ -64,9 +64,19 @@
         }
 
         @keyframes inputPulse {
-          0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
-          70% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+          0% { box-shadow: 0 0 0 0 rgba(92, 107, 192, 0.4); }
+          70% { box-shadow: 0 0 0 8px rgba(92, 107, 192, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(92, 107, 192, 0); }
+        }
+
+        @keyframes neonBreath {
+          0% { box-shadow: 0 0 5px rgba(92, 107, 192, 0.2); border-color: rgba(92, 107, 192, 0.2); }
+          50% { box-shadow: 0 0 15px rgba(92, 107, 192, 0.5); border-color: rgba(92, 107, 192, 0.4); }
+          100% { box-shadow: 0 0 5px rgba(92, 107, 192, 0.2); border-color: rgba(92, 107, 192, 0.2); }
+        }
+
+        .neon-glow {
+          animation: neonBreath 4s infinite ease-in-out;
         }
 
         .animate-shimmer {
@@ -87,7 +97,7 @@
         .typing-dot {
           width: 8px;
           height: 8px;
-          background: #8b5cf6;
+          background: #5C6BC0;
           border-radius: 50%;
           display: inline-block;
           animation: dotBounce 1.4s infinite ease-in-out both;
@@ -137,8 +147,8 @@
         .active-word {
             color: #ffffff !important;
             transform: scale(1.1);
-            text-shadow: 0 0 10px rgba(139, 92, 246, 0.8), 0 0 20px rgba(139, 92, 246, 0.4);
-            background: rgba(139, 92, 246, 0.2);
+            text-shadow: 0 0 10px rgba(92, 107, 192, 0.8), 0 0 20px rgba(92, 107, 192, 0.4);
+            background: rgba(92, 107, 192, 0.2);
             border-radius: 4px;
             padding: 0 2px;
             z-index: 10;

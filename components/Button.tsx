@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -20,16 +19,16 @@ export const Button: React.FC<ButtonProps> = ({
   const isDark = theme === 'dark';
 
   const variants = {
-    primary: "bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20 active:scale-95",
+    primary: "bg-[#5C6BC0] text-white hover:bg-[#4E5BA3] shadow-lg shadow-[#5C6BC0]/20 active:scale-95",
     secondary: isDark 
       ? "bg-zinc-800 text-indigo-400 hover:bg-zinc-700 border border-zinc-700" 
-      : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-100",
+      : "bg-[#5C6BC0]/10 text-[#5C6BC0] hover:bg-[#5C6BC0]/20 border border-[#5C6BC0]/20",
     outline: isDark 
       ? "border-2 border-zinc-700 text-zinc-300 hover:border-indigo-500 hover:text-indigo-400 active:scale-95" 
-      : "border-2 border-slate-200 text-slate-600 hover:border-indigo-600 hover:text-indigo-600 active:scale-95",
+      : "border-2 border-[#E0E4F0] text-[#2D2D2D] hover:border-[#5C6BC0] hover:text-[#5C6BC0] active:scale-95",
     ghost: isDark 
       ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" 
-      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+      : "text-[#1A237E] hover:bg-[#5C6BC0]/5 hover:text-[#5C6BC0]"
   };
 
   return (

@@ -563,8 +563,8 @@ const App: React.FC = () => {
   };
 
   const glassCardClass = isDark 
-    ? "bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl" 
-    : "bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl";
+    ? "bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl neon-glow" 
+    : "bg-white border border-[#E0E4F0] shadow-[0_2px_4px_rgba(0,0,0,0.05)] neon-glow";
 
   const getPlaybackLabel = () => {
     if (isAudioLoading) return '✨ GENERATING...';
@@ -580,7 +580,7 @@ const App: React.FC = () => {
     <div className="relative group/item mb-3">
       <button 
         onClick={() => loadSession(session)}
-        className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/50'} ${activeSessionId === session.id ? (isDark ? 'bg-white/10 border-indigo-500/50' : 'bg-slate-100 border-indigo-500/50') : ''}`}
+        className={`w-full text-left p-5 rounded-3xl border transition-all duration-300 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10' : 'bg-white border-[#E0E4F0] hover:bg-slate-50 shadow-sm'} ${activeSessionId === session.id ? (isDark ? 'bg-white/10 border-indigo-500/50' : 'bg-indigo-50 border-[#5C6BC0]/50 shadow-none') : ''}`}
       >
         {renamingId === session.id ? (
           <form onSubmit={handleRenameSubmit} className="relative z-10" onClick={e => e.stopPropagation()}>
@@ -589,16 +589,16 @@ const App: React.FC = () => {
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
               onBlur={handleRenameSubmit}
-              className={`w-full bg-transparent border-b outline-none text-sm font-bold ${isDark ? 'border-indigo-500 text-white' : 'border-indigo-600 text-slate-900'}`}
+              className={`w-full bg-transparent border-b outline-none text-sm font-bold ${isDark ? 'border-indigo-500 text-white' : 'border-[#5C6BC0] text-[#2D2D2D]'}`}
             />
           </form>
         ) : (
           <>
-            <div className="font-bold text-sm truncate mb-1 pr-6">{session.title}</div>
+            <div className={`font-bold text-sm truncate mb-1 pr-6 ${isDark ? 'text-white' : 'text-[#2D2D2D]'}`}>{session.title}</div>
             <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest opacity-40 font-black">{new Date(session.timestamp).toLocaleDateString()}</div>
+              <div className={`text-[10px] uppercase tracking-widest opacity-40 font-black ${isDark ? '' : 'text-[#2D2D2D]'}`}>{new Date(session.timestamp).toLocaleDateString()}</div>
               {session.isPinned && (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-[#5C6BC0]" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
                 </svg>
               )}
@@ -617,12 +617,12 @@ const App: React.FC = () => {
       </button>
 
       {activeMenuId === session.id && (
-        <div className={`absolute right-3 top-10 z-[60] w-40 py-2 rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up origin-top-right border ${isDark ? 'bg-indigo-950/80 border-white/10 shadow-black' : 'bg-white/95 border-slate-200 shadow-slate-200'}`}>
-          <button onClick={(e) => togglePin(session.id, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+        <div className={`absolute right-3 top-10 z-[60] w-40 py-2 rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up origin-top-right border ${isDark ? 'bg-indigo-950/80 border-white/10 shadow-black' : 'bg-white border-[#E0E4F0] shadow-xl'}`}>
+          <button onClick={(e) => togglePin(session.id, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-50 text-[#2D2D2D]'}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
             {session.isPinned ? 'Unpin' : 'Pin'}
           </button>
-          <button onClick={(e) => startRename(session, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+          <button onClick={(e) => startRename(session, e)} className={`w-full px-4 py-2 text-left text-xs font-bold flex items-center gap-3 transition-colors ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-50 text-[#2D2D2D]'}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             Rename
           </button>
@@ -638,33 +638,33 @@ const App: React.FC = () => {
   const isRTL = studyData?.languageCode?.startsWith('ar') || false;
 
   return (
-    <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-[#F4F4F9] text-[#2D2D2D]'}`}>
       <aside 
         onClick={() => setActiveMenuId(null)}
-        className={`fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-indigo-950/40 border-r border-white/5 shadow-indigo-900/20' : 'bg-white/95 border-r border-slate-200 shadow-slate-200'} backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col`}
+        className={`fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-indigo-950/40 border-r border-white/5 shadow-indigo-900/20' : 'bg-white border-r border-[#E0E4F0] shadow-lg'} backdrop-blur-3xl overflow-hidden flex flex-col`}
       >
         <div className="p-6 border-b border-white/5 flex items-center justify-between">
-          <h2 className="font-black text-xs uppercase tracking-[0.3em] opacity-40">History</h2>
+          <h2 className={`font-black text-xs uppercase tracking-[0.3em] opacity-40 ${isDark ? '' : 'text-[#1A237E]'}`}>History</h2>
           <button onClick={() => setIsSidebarOpen(false)} className="opacity-40 hover:opacity-100 transition-opacity">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
           </button>
         </div>
         
         <div className="p-4 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
-          <Button theme={theme} variant="outline" className="w-full py-4 rounded-2xl border-white/10 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all font-black text-[10px] tracking-widest" onClick={reset}>
+          <Button theme={theme} variant="outline" className="w-full py-4 rounded-2xl border-[#5C6BC0]/20 bg-[#5C6BC0]/5 hover:bg-[#5C6BC0]/10 transition-all font-black text-[10px] tracking-widest" onClick={reset}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
             NEW SESSION
           </Button>
           
           {pinnedSessions.length > 0 && (
             <div>
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2">Pinned</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2 text-[#1A237E]">Pinned</h3>
               {pinnedSessions.map(session => <SessionItem key={session.id} session={session} />)}
             </div>
           )}
 
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2">Recent</h3>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2 text-[#1A237E]">Recent</h3>
             {recentSessions.length === 0 && pinnedSessions.length === 0 ? (
               <div className="text-center py-20 opacity-20 italic text-sm">Empty History</div>
             ) : (
@@ -682,20 +682,20 @@ const App: React.FC = () => {
           </>
         )}
 
-        <header className={`backdrop-blur-2xl border-b sticky top-0 z-30 transition-all duration-500 ${isDark ? 'bg-black/40 border-white/5' : 'bg-white/70 border-slate-200'}`}>
+        <header className={`backdrop-blur-2xl border-b sticky top-0 z-30 transition-all duration-500 ${isDark ? 'bg-black/40 border-white/5' : 'bg-white/90 border-[#E0E4F0]'}`}>
           <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(true); }} className="p-2 hover:bg-white/5 rounded-xl transition-all">
+              <button onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(true); }} className={`p-2 rounded-xl transition-all ${isDark ? 'hover:bg-white/5' : 'hover:bg-[#5C6BC0]/5'}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
-              <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
+              <div className="w-9 h-9 bg-[#5C6BC0] rounded-xl flex items-center justify-center shadow-lg shadow-[#5C6BC0]/30">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.827a1 1 0 00-.788 0l-7 3a1 1 0 000 1.848l7 3a1 1 0 00.788 0l7-3a1 1 0 000-1.848l-7-3zM14 9.528v2.736a1 1 0 01-.529.883L10 14.613l-3.471-1.466A1 1 0 016 12.264V9.528l4 1.714 4-1.714z" /></svg>
               </div>
-              <h1 className={`breakthrough-text text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Lumina</h1>
+              <h1 className={`breakthrough-text text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Lumina</h1>
             </div>
             
             <div className="flex items-center gap-3">
-              <button onClick={toggleTheme} className={`p-2.5 rounded-full transition-all active:scale-90 ${isDark ? 'bg-white/5 text-yellow-400' : 'bg-slate-100 text-indigo-600'}`}>
+              <button onClick={toggleTheme} className={`p-2.5 rounded-full transition-all active:scale-90 ${isDark ? 'bg-white/5 text-yellow-400' : 'bg-[#5C6BC0]/10 text-[#5C6BC0]'}`}>
                 {isDark ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>}
               </button>
             </div>
@@ -706,29 +706,29 @@ const App: React.FC = () => {
           {state === AppState.IDLE || state === AppState.ERROR ? (
             <div className="max-w-3xl mx-auto space-y-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
               <div className="text-center space-y-6">
-                <h2 className={`text-5xl md:text-6xl font-black leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Study Smarter.</h2>
-                <p className={`text-xl md:text-2xl opacity-80 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Transform notes into synthesized study material in seconds.</p>
+                <h2 className={`text-5xl md:text-6xl font-black leading-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Study Smarter.</h2>
+                <p className={`text-xl md:text-2xl opacity-80 ${isDark ? 'text-zinc-400' : 'text-[#1A237E]/60'}`}>Transform notes into synthesized study material in seconds.</p>
               </div>
 
-              <div className={`p-10 rounded-[3rem] shadow-2xl space-y-10 ${glassCardClass}`}>
+              <div className={`p-10 rounded-[3rem] space-y-10 ${glassCardClass}`}>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-black uppercase tracking-[0.2em] opacity-40 ml-1">Notes or PDF</label>
+                    <label className={`text-xs font-black uppercase tracking-[0.2em] opacity-40 ml-1 ${isDark ? '' : 'text-[#1A237E]'}`}>Notes or PDF</label>
                     {selectedFile && (
-                      <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full">
-                         <span className="text-[10px] font-bold text-indigo-400 uppercase truncate max-w-[150px]">{selectedFile.name}</span>
-                         <button onClick={() => setSelectedFile(null)} className="text-indigo-400 hover:text-white transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" /></svg></button>
+                      <div className="flex items-center gap-2 px-3 py-1 bg-[#5C6BC0]/10 border border-[#5C6BC0]/20 rounded-full">
+                         <span className="text-[10px] font-bold text-[#5C6BC0] uppercase truncate max-w-[150px]">{selectedFile.name}</span>
+                         <button onClick={() => setSelectedFile(null)} className="text-[#5C6BC0] hover:text-[#1A237E] transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" /></svg></button>
                       </div>
                     )}
                   </div>
-                  <textarea className={`w-full h-64 p-8 border rounded-[2rem] focus:ring-2 focus:ring-indigo-500/50 outline-none resize-none text-lg leading-relaxed ${isDark ? 'bg-black/30 border-white/5 text-zinc-100 placeholder-zinc-700' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'}`} placeholder="Paste notes here..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <textarea className={`w-full h-64 p-8 border rounded-[2rem] focus:ring-2 focus:ring-[#5C6BC0]/50 outline-none resize-none text-lg leading-relaxed ${isDark ? 'bg-black/30 border-white/5 text-zinc-100 placeholder-zinc-700' : 'bg-white border-[#E0E4F0] text-[#2D2D2D] placeholder-slate-400'}`} placeholder="Paste notes here..." value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </div>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center items-stretch">
                   <input type="file" accept="application/pdf" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-                  <Button theme={theme} variant="outline" className="w-full sm:max-w-[200px] py-5 text-lg rounded-2xl border-indigo-600/30 text-indigo-400" onClick={() => fileInputRef.current?.click()}>
+                  <Button theme={theme} variant="outline" className="w-full sm:max-w-[200px] py-5 text-lg rounded-2xl border-[#5C6BC0]/30 text-[#5C6BC0] font-bold" onClick={() => fileInputRef.current?.click()}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg> Upload PDF
                   </Button>
-                  <Button theme={theme} className="w-full sm:max-w-md py-5 text-lg rounded-2xl bg-indigo-600 font-black tracking-widest text-xs uppercase" onClick={handleSubmit} disabled={!notes.trim() && !selectedFile}>Generate Guide</Button>
+                  <Button theme={theme} className="w-full sm:max-w-md py-5 text-lg rounded-2xl bg-[#5C6BC0] font-black tracking-widest text-xs uppercase shadow-xl shadow-[#5C6BC0]/20" onClick={handleSubmit} disabled={!notes.trim() && !selectedFile}>Generate Guide</Button>
                 </div>
                 {error && <div className="p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-sm">{error}</div>}
               </div>
@@ -737,9 +737,9 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-10">
               <div className="relative">
                 <div className={`w-32 h-32 border-4 rounded-full ${isDark ? 'border-white/5' : 'border-slate-200'}`}></div>
-                <div className="absolute top-0 left-0 w-32 h-32 border-t-4 border-indigo-500 rounded-full animate-spin"></div>
+                <div className="absolute top-0 left-0 w-32 h-32 border-t-4 border-[#5C6BC0] rounded-full animate-spin"></div>
               </div>
-              <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Crafting Material...</h3>
+              <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Crafting Material...</h3>
             </div>
           ) : studyData ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 pb-20">
@@ -747,17 +747,17 @@ const App: React.FC = () => {
                 <section className={`p-10 md:p-12 rounded-[3.5rem] relative overflow-hidden transition-all animate-spring-up ${glassCardClass}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 relative z-10">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl">
+                      <div className="p-3 bg-[#5C6BC0]/20 text-[#5C6BC0] rounded-2xl">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                       </div>
-                      <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Summary</h2>
+                      <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Summary</h2>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex items-center gap-2 p-1 bg-black/10 rounded-2xl border border-white/5 backdrop-blur-md">
+                      <div className={`flex items-center gap-2 p-1 rounded-2xl border backdrop-blur-md ${isDark ? 'bg-black/10 border-white/5' : 'bg-[#F4F4F9] border-[#E0E4F0]'}`}>
                         <button 
                           onClick={togglePremiumVoice} 
                           disabled={isAudioLoading} 
-                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
+                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-[#5C6BC0] text-white shadow-lg' : isDark ? 'hover:bg-white/5 text-zinc-400' : 'bg-white hover:bg-slate-50 text-[#5C6BC0] border border-[#5C6BC0]/20'}`}
                         >
                           {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>)}
                           <span>{getPlaybackLabel()}</span>
@@ -765,10 +765,10 @@ const App: React.FC = () => {
                         
                         <button 
                           onClick={toggleActiveReader} 
-                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase ${isActiveReaderPlaying ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
+                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase ${isActiveReaderPlaying ? 'bg-[#5C6BC0] text-white shadow-lg' : isDark ? 'hover:bg-white/5 text-zinc-400' : 'bg-white hover:bg-slate-50 text-[#5C6BC0] border border-[#5C6BC0]/20'}`}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
-                          <span>ACTIVE READER</span>
+                          <span>READER</span>
                         </button>
 
                         {(playbackState !== 'idle' || isActiveReaderPlaying) && (
@@ -777,33 +777,33 @@ const App: React.FC = () => {
                           </button>
                         )}
                       </div>
-                      <Button theme={theme} variant="secondary" className={`px-5 py-2.5 text-xs font-black rounded-full border ${isCopied ? 'text-green-400 border-green-500/30' : ''}`} onClick={handleCopySummary}>{isCopied ? 'COPIED' : 'COPY'}</Button>
+                      <Button theme={theme} variant="secondary" className={`px-5 py-2.5 text-xs font-black rounded-full border ${isCopied ? 'text-green-600 border-green-500/30 bg-green-50' : isDark ? '' : 'text-[#5C6BC0] border-[#5C6BC0]/20 bg-white'}`} onClick={handleCopySummary}>{isCopied ? 'COPIED' : 'COPY'}</Button>
                     </div>
                   </div>
-                  <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
+                  <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-[#2D2D2D]'}`}>
                     {renderSummaryText()}
                   </div>
                 </section>
 
                 <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all animate-spring-up delay-200 ${glassCardClass}`}>
                   <div className="flex items-center gap-5 mb-8">
-                    <div className="p-3 bg-purple-500/20 text-purple-400 rounded-2xl">
+                    <div className="p-3 bg-purple-500/20 text-[#5C6BC0] rounded-2xl">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
                     </div>
-                    <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Interactive Chat</h2>
+                    <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Interactive Chat</h2>
                   </div>
                   
-                  <div className={`flex flex-col h-[550px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5 shadow-inner' : 'bg-white/50 border-slate-200 shadow-inner'}`}>
+                  <div className={`flex flex-col h-[550px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5 shadow-inner' : 'bg-[#F4F4F9] border-[#E0E4F0] shadow-inner'}`}>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
                       {chatLog.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center opacity-30 text-center px-10">
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                          <p className="text-lg font-medium">Lumina is ready. Ask anything about your notes or the summary above.</p>
+                          <p className={`text-lg font-medium ${isDark ? '' : 'text-[#1A237E]'}`}>Lumina is ready. Ask anything about your notes or the summary above.</p>
                         </div>
                       ) : (
                         chatLog.map((msg, i) => (
                           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-message`}>
-                            <div className={`max-w-[85%] px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : isDark ? 'bg-zinc-800/80 text-zinc-200 border border-white/5' : 'bg-white text-slate-800 border border-slate-200'}`}>
+                            <div className={`max-w-[85%] px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-[#1A237E] text-white shadow-[0_0_15px_rgba(26,35,126,0.3)]' : isDark ? 'bg-zinc-800/80 text-zinc-200 border border-white/5' : 'bg-white text-[#2D2D2D] border border-[#E0E4F0]'}`}>
                               {renderWaterfallMessage(msg.content, msg.role)}
                             </div>
                           </div>
@@ -811,13 +811,13 @@ const App: React.FC = () => {
                       )}
                       {isChatLoading && (
                         <div className="flex justify-start animate-message">
-                          <div className={`px-5 py-4 rounded-2xl flex gap-1.5 items-center ${isDark ? 'bg-zinc-800/80 border border-white/5' : 'bg-white border border-slate-200'}`}>
+                          <div className={`px-5 py-4 rounded-2xl flex gap-1.5 items-center ${isDark ? 'bg-zinc-800/80 border border-white/5' : 'bg-white border border-[#E0E4F0]'}`}>
                             <span className="typing-dot"></span><span className="typing-dot"></span><span className="typing-dot"></span>
                           </div>
                         </div>
                       )}
                     </div>
-                    <form onSubmit={handleSendChatMessage} className={`p-6 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white/40'}`}>
+                    <form onSubmit={handleSendChatMessage} className={`p-6 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-[#E0E4F0] bg-white'}`}>
                       <div className="flex gap-4">
                         <input 
                           type="text" 
@@ -825,12 +825,12 @@ const App: React.FC = () => {
                           onChange={(e) => setChatInput(e.target.value)} 
                           disabled={isChatLoading} 
                           placeholder="Type a question..." 
-                          className={`flex-1 px-6 py-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all input-glow-pulse ${isDark ? 'bg-white/5 border border-white/10 text-zinc-100' : 'bg-slate-50 border border-slate-200 text-slate-800'}`} 
+                          className={`flex-1 px-6 py-4 rounded-2xl outline-none focus:ring-2 focus:ring-[#5C6BC0]/50 transition-all input-glow-pulse ${isDark ? 'bg-white/5 border border-white/10 text-zinc-100' : 'bg-white border border-[#E0E4F0] text-[#2D2D2D]'}`} 
                         />
                         <button 
                           type="submit" 
                           disabled={!chatInput.trim() || isChatLoading} 
-                          className={`w-14 h-14 rounded-2xl transition-all flex items-center justify-center hover:scale-[1.05] active:scale-95 ${!chatInput.trim() || isChatLoading ? 'opacity-30 bg-zinc-700' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'}`}
+                          className={`w-14 h-14 rounded-2xl transition-all flex items-center justify-center hover:scale-[1.05] active:scale-95 ${!chatInput.trim() || isChatLoading ? 'opacity-30 bg-zinc-700' : 'bg-[#1A237E] text-white shadow-lg hover:shadow-[0_0_20px_rgba(26,35,126,0.6)]'}`}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                         </button>
@@ -841,16 +841,16 @@ const App: React.FC = () => {
 
                 <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all animate-spring-up delay-400 ${glassCardClass}`}>
                   <div className="flex items-center gap-5 mb-12">
-                    <div className="p-3 bg-amber-500/20 text-amber-500 rounded-2xl">
+                    <div className="p-3 bg-amber-500/20 text-amber-600 rounded-2xl">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                     </div>
-                    <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Key Terms</h2>
+                    <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Key Terms</h2>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {studyData.vocabulary.map((item, idx) => (
-                      <div key={idx} className={`animate-vocab flex flex-col gap-4 p-8 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-slate-50 border-slate-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
-                        <span className={`font-black uppercase text-xs tracking-[0.3em] ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.word}</span>
-                        <p className={`text-sm transition-colors opacity-80 leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>{item.definition}</p>
+                      <div key={idx} className={`animate-vocab flex flex-col gap-4 p-10 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-white border-[#E0E4F0] hover:bg-[#F4F4F9]'}`} style={{ animationDelay: `${idx * 150}ms` }}>
+                        <span className={`font-black uppercase text-xs tracking-[0.3em] ${isDark ? 'text-[#5C6BC0]' : 'text-[#5C6BC0]'}`}>{item.word}</span>
+                        <p className={`text-sm transition-colors opacity-80 leading-relaxed ${isDark ? 'text-zinc-300' : 'text-[#2D2D2D]'}`}>{item.definition}</p>
                       </div>
                     ))}
                   </div>
@@ -860,33 +860,36 @@ const App: React.FC = () => {
               <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
                 <div className="sticky top-28">
                   <Quiz questions={studyData.quiz} theme={theme} />
-                  <div className="mt-10 p-10 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-[3rem] text-white shadow-2xl relative group border border-white/10">
+                  <div className="mt-10 p-10 bg-gradient-to-br from-[#5C6BC0] to-[#1A237E] rounded-[3rem] text-white shadow-2xl relative group border border-white/10">
                     <div className="relative z-10">
                       <h4 className="font-black text-2xl mb-4 tracking-tight">Review Session</h4>
                       <div className="space-y-4 relative">
-                        <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
+                        <Button theme={theme} variant="outline" className={`w-full py-4 rounded-2xl font-black text-[10px] tracking-widest ${isDark ? '!border-white/20 !bg-white/10 !text-white hover:!bg-white/20' : '!bg-white/10 !border-white/20 !text-white hover:!bg-white/20'}`} onClick={reset}>NEW SESSION</Button>
                         <div className="relative">
-                          <Button 
-                            theme={theme} 
-                            variant="primary" 
-                            className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2 justify-center" 
+                          <button 
+                            className="w-full py-4 bg-white/80 border-[1.5px] border-[#1A237E] backdrop-blur-md text-[#1A237E] hover:bg-white rounded-2xl font-black text-[10px] tracking-widest flex items-center gap-2 justify-center shadow-lg transition-all active:scale-95 disabled:opacity-50" 
                             onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }} 
-                            isLoading={isDownloading}
+                            disabled={isDownloading}
                           >
-                            {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
-                          </Button>
+                            {isDownloading ? (
+                              <svg className="animate-spin h-5 w-5 text-indigo-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            )}
+                            EXPORT GUIDE
+                          </button>
                           
                           {isExportMenuOpen && (
-                            <div className={`absolute bottom-full mb-3 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden z-[100] ${isDark ? 'bg-indigo-950/95 border-white/10' : 'bg-white/95 border-slate-200'}`}>
-                              <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>
+                            <div className={`absolute bottom-full mb-3 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden z-[100] ${isDark ? 'bg-indigo-950/95 border-white/10' : 'bg-white border-[#E0E4F0]'}`}>
+                              <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-50 text-[#2D2D2D]'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                                 PDF Document
                               </button>
-                              <button onClick={handleExportToNotion} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-100 border-slate-100 text-slate-700'}`}>
+                              <button onClick={handleExportToNotion} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-50 border-[#E0E4F0] text-[#2D2D2D]'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                 Notion (.md)
                               </button>
-                              <button onClick={handleExportToAnki} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-100 border-slate-100 text-slate-700'}`}>
+                              <button onClick={handleExportToAnki} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 border-white/5 text-zinc-300' : 'hover:bg-slate-50 border-[#E0E4F0] text-[#2D2D2D]'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                                 Flashcards (.csv)
                               </button>
@@ -915,7 +918,7 @@ const App: React.FC = () => {
               textAlign: isRTL ? 'right' : 'left'
             }}
           >
-            <div style={{ borderBottom: '3pt solid #312e81', paddingBottom: '20pt', marginBottom: '30pt' }}>
+            <div style={{ borderBottom: '3pt solid #1A237E', paddingBottom: '20pt', marginBottom: '30pt' }}>
               <h1 style={{ fontSize: '28pt', margin: '0', fontWeight: '900', color: '#1a1a1a', letterSpacing: '-0.02em', textTransform: 'uppercase' }}>
                 {studyData?.title || 'Academic Study Guide'}
               </h1>
@@ -926,16 +929,16 @@ const App: React.FC = () => {
             </div>
             
             <div style={{ marginBottom: '40pt' }}>
-              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+              <h2 style={{ fontSize: '16pt', color: '#1A237E', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #1A237E', borderRight: isRTL ? '4pt solid #1A237E' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
                 Executive Summary
               </h2>
-              <div style={{ fontSize: '11pt', lineHeight: '1.7', color: '#333333', whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: '11pt', lineHeight: '1.7', color: '#2D2D2D', whiteSpace: 'pre-wrap' }}>
                 {summaryText}
               </div>
             </div>
             
             <div style={{ marginBottom: '40pt' }}>
-              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+              <h2 style={{ fontSize: '16pt', color: '#1A237E', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #1A237E', borderRight: isRTL ? '4pt solid #1A237E' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
                 Key Technical Vocabulary
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15pt' }}>
@@ -953,7 +956,7 @@ const App: React.FC = () => {
             </div>
 
             <div style={{ breakBefore: 'page', marginTop: '40pt' }}>
-              <h2 style={{ fontSize: '16pt', color: '#312e81', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #312e81', borderRight: isRTL ? '4pt solid #312e81' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
+              <h2 style={{ fontSize: '16pt', color: '#1A237E', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '900', marginBottom: '15pt', borderLeft: isRTL ? 'none' : '4pt solid #1A237E', borderRight: isRTL ? '4pt solid #1A237E' : 'none', paddingLeft: isRTL ? '0' : '10pt', paddingRight: isRTL ? '10pt' : '0' }}>
                 Practice Assessment
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '25pt' }}>
