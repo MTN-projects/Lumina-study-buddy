@@ -14,6 +14,8 @@ export interface StudyData {
   vocabulary: VocabularyItem[];
   quiz: QuizQuestion[];
   title?: string;
+  languageCode: string;
+  audioInstruction: string;
 }
 
 export interface ChatMessage {

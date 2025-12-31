@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppState, StudyData, ChatMessage, StudySession } from './types';
 import { processLectureNotes, generateSpeech, FileData, askQuestionAboutDocumentStream } from './services/geminiService';
@@ -36,13 +37,6 @@ async function decodeAudioData(
   return buffer;
 }
 
-type PlaybackMode = 'premium' | 'active' | 'none';
-
-interface Toast {
-  message: string;
-  type: 'info' | 'error' | 'success';
-}
-
 const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [state, setState] = useState<AppState>(AppState.IDLE);
@@ -71,16 +65,9 @@ const App: React.FC = () => {
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Playback State
-  const [activeMode, setActiveMode] = useState<PlaybackMode>('none');
   const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
-  const [isPremiumLocked, setIsPremiumLocked] = useState(true);
-  const [isPremiumUnavailable, setIsPremiumUnavailable] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
-  
-  // Active Reader (Karaoke) State
-  const [currentWordIndex, setCurrentWordIndex] = useState<number | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -104,36 +91,17 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Background logic for Smart Lock (Voice System Availability)
+  // Sync Chat History to Local Storage when chatLog changes
   useEffect(() => {
-    const checkVoices = () => {
-      const synth = window.speechSynthesis;
-      const voices = synth.getVoices();
-      const hasPremiumLocal = voices.some(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
-      
-      // Premium Voice unlocks when both the prefetched high-quality audio AND the system voice list is populated
-      if (hasPremiumLocal && prefetchedBuffer && !isPremiumUnavailable) {
-        setIsPremiumLocked(false);
-      }
-    };
-
-    window.speechSynthesis.onvoiceschanged = checkVoices;
-    checkVoices(); // Initial check
-
-    return () => {
-      window.speechSynthesis.onvoiceschanged = null;
-    };
-  }, [prefetchedBuffer, isPremiumUnavailable]);
-
-  // Toast timeout
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 5000);
-      return () => clearTimeout(timer);
+    if (activeSessionId && chatLog.length > 0) {
+      const updated = savedSessions.map(s => 
+        s.id === activeSessionId ? { ...s, chatLog: chatLog } : s
+      );
+      setSavedSessions(updated);
+      localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
     }
-  }, [toast]);
+  }, [chatLog, activeSessionId]);
 
-  // Persistence Helper
   const saveSessionToHistory = (data: StudyData, originalNotes: string, fileName: string) => {
     const newSession: StudySession = {
       id: Date.now().toString(),
@@ -156,13 +124,6 @@ const App: React.FC = () => {
     localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
   };
 
-  const updateChatLogPersistence = (messages: ChatMessage[]) => {
-    if (!activeSessionId) return;
-    const updated = savedSessions.map(s => s.id === activeSessionId ? { ...s, chatLog: messages } : s);
-    updateHistory(updated);
-  };
-
-  // Sidebar Actions
   const togglePin = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = savedSessions.map(s => s.id === id ? { ...s, isPinned: !s.isPinned } : s);
@@ -197,42 +158,19 @@ const App: React.FC = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
-  const wordSegments = useMemo(() => {
-    if (!studyData?.summary) return [];
-    const segments = [];
-    const regex = /\S+/g;
-    let match;
-    while ((match = regex.exec(studyData.summary)) !== null) {
-      segments.push({
-        text: match[0],
-        start: match.index,
-        end: match.index + match[0].length
-      });
-    }
-    return segments;
-  }, [studyData?.summary]);
+  const summaryText = useMemo(() => studyData?.summary || "", [studyData?.summary]);
 
-  const prefetchAudio = async (text: string) => {
-    setIsPremiumLocked(true);
-    setIsPremiumUnavailable(false);
+  const prefetchAudio = async (text: string, instruction: string) => {
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
-      const base64 = await generateSpeech(text);
+      const base64 = await generateSpeech(text, instruction);
       const audioData = decode(base64);
       const buffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
       setPrefetchedBuffer(buffer);
     } catch (err: any) {
-      console.warn("Background TTS pre-fetch failed:", err);
-      // Detect 429 Errors
-      if (err?.message?.includes('429') || err?.status === 429 || err?.message?.toLowerCase().includes('quota')) {
-        setIsPremiumUnavailable(true);
-        setIsPremiumLocked(false);
-        setToast({ message: 'Cloud voice is at capacity. Switching to local Active Reader mode.', type: 'info' });
-        // Auto-fallback to Active Reader
-        setTimeout(() => toggleActiveReader(), 500);
-      }
+      console.warn("Retrying Premium Voice connection...");
     }
   };
 
@@ -254,18 +192,16 @@ const App: React.FC = () => {
   };
 
   const handleCopySummary = async () => {
-    if (studyData?.summary) {
+    if (summaryText) {
       try {
-        await navigator.clipboard.writeText(studyData.summary);
+        await navigator.clipboard.writeText(summaryText);
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
       } catch (err) {}
     }
   };
 
-  // --- AUDIO LOGIC ---
   const stopAllPlayback = () => {
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (sourceRef.current) {
       try { 
         sourceRef.current.onended = null; 
@@ -275,35 +211,29 @@ const App: React.FC = () => {
     }
     playedOffsetRef.current = 0;
     setPlaybackState('idle');
-    setActiveMode('none');
-    setCurrentWordIndex(null);
   };
 
   const togglePremiumVoice = async () => {
-    if (isPremiumLocked || isPremiumUnavailable) return;
-    if (activeMode === 'active') stopAllPlayback();
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (!audioContextRef.current) audioContextRef.current = ctx;
 
-    if (activeMode === 'premium') {
-      if (playbackState === 'playing') {
-        if (sourceRef.current) {
-          const elapsed = ctx.currentTime - startTimeRef.current;
-          playedOffsetRef.current += elapsed;
-          sourceRef.current.onended = null;
-          sourceRef.current.stop();
-          sourceRef.current = null;
-          setPlaybackState('paused');
-        }
-        return;
-      } else if (playbackState === 'paused' && prefetchedBuffer) {
-        playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
-        return;
+    if (playbackState === 'playing') {
+      if (sourceRef.current) {
+        const elapsed = ctx.currentTime - startTimeRef.current;
+        playedOffsetRef.current += elapsed;
+        sourceRef.current.onended = null;
+        sourceRef.current.stop();
+        sourceRef.current = null;
+        setPlaybackState('paused');
       }
+      return;
+    } else if (playbackState === 'paused' && prefetchedBuffer) {
+      playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
+      return;
     }
 
-    if (!studyData?.summary) return;
-    setActiveMode('premium');
+    if (!summaryText) return;
+
     if (prefetchedBuffer) {
       playFromBuffer(prefetchedBuffer, 0);
       return;
@@ -311,21 +241,16 @@ const App: React.FC = () => {
 
     setIsAudioLoading(true);
     try {
-      const base64 = await generateSpeech(studyData.summary);
+      const base64 = await generateSpeech(summaryText, studyData?.audioInstruction || "");
       const audioData = decode(base64);
       const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
       setPrefetchedBuffer(audioBuffer);
       playFromBuffer(audioBuffer, 0);
     } catch (err: any) {
-      if (err?.message?.includes('429') || err?.status === 429) {
-        setIsPremiumUnavailable(true);
-        setToast({ message: 'Cloud voice is at capacity. Switching to local Active Reader mode.', type: 'info' });
-        toggleActiveReader();
-      } else {
-        setError("Failed to generate premium audio.");
-      }
-      setActiveMode('none');
-    } finally { setIsAudioLoading(false); }
+      console.error("Premium voice busy, retrying...");
+    } finally { 
+      setIsAudioLoading(false); 
+    }
   };
 
   const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
@@ -336,10 +261,9 @@ const App: React.FC = () => {
     source.buffer = buffer;
     source.connect(ctx.destination);
     source.onended = () => {
-      if (activeMode === 'premium' && playbackState === 'playing') {
+      if (playbackState === 'playing') {
         playedOffsetRef.current = 0;
         setPlaybackState('idle');
-        setActiveMode('none');
       }
     };
     sourceRef.current = source;
@@ -348,53 +272,22 @@ const App: React.FC = () => {
     setPlaybackState('playing');
   };
 
-  const toggleActiveReader = () => {
-    if (activeMode === 'premium') stopAllPlayback();
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    if (activeMode === 'active') {
-      if (playbackState === 'playing') { synth.pause(); setPlaybackState('paused'); }
-      else if (playbackState === 'paused') { synth.resume(); setPlaybackState('playing'); }
-      return;
-    }
-    if (!studyData?.summary) return;
-    setActiveMode('active');
-    synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(studyData.summary);
-    const voices = synth.getVoices();
-    const bestVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Natural') || v.name.includes('Google')));
-    if (bestVoice) utterance.voice = bestVoice;
-    utterance.onboundary = (event) => {
-      if (event.name === 'word') {
-        const matchIdx = wordSegments.findIndex(seg => event.charIndex >= seg.start && event.charIndex <= seg.end);
-        if (matchIdx !== -1) setCurrentWordIndex(matchIdx);
-      }
-    };
-    utterance.onstart = () => setPlaybackState('playing');
-    utterance.onend = () => {
-      if (activeMode === 'active') { setPlaybackState('idle'); setActiveMode('none'); setCurrentWordIndex(null); }
-    };
-    synth.speak(utterance);
-  };
-
-  // --- CHAT LOGIC ---
   const handleSendChatMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!chatInput.trim() || isChatLoading) return;
     const userMsg = chatInput.trim();
     setChatInput('');
-    const newChatLog: ChatMessage[] = [...chatLog, { role: 'user', content: userMsg }];
-    setChatLog(newChatLog);
-    updateChatLogPersistence(newChatLog);
+    
+    const newChatHistory: ChatMessage[] = [...chatLog, { role: 'user', content: userMsg }];
+    setChatLog(newChatHistory);
     
     setIsChatLoading(true);
     try {
       const fileData: FileData | undefined = selectedFile ? { data: selectedFile.base64, mimeType: selectedFile.mimeType } : undefined;
-      const responseStream = await askQuestionAboutDocumentStream(userMsg, newChatLog, notes, fileData);
-      let fullAnswer = "";
+      const responseStream = await askQuestionAboutDocumentStream(userMsg, newChatHistory.slice(0, -1), notes, fileData);
       
-      const updatedLogWithModel: ChatMessage[] = [...newChatLog, { role: 'model', content: "" }];
-      setChatLog(updatedLogWithModel);
+      let fullAnswer = "";
+      setChatLog(prev => [...prev, { role: 'model', content: "" }]);
       
       for await (const chunk of responseStream) {
         const text = chunk.text;
@@ -407,18 +300,11 @@ const App: React.FC = () => {
           });
         }
       }
-      
-      // Persist the final model response
-      setChatLog(prev => {
-        updateChatLogPersistence(prev);
-        return prev;
-      });
-      
     } catch (err) {
-      const errorLog: ChatMessage[] = [...newChatLog, { role: 'model', content: "Sorry, I had trouble finding an answer." }];
-      setChatLog(errorLog);
-      updateChatLogPersistence(errorLog);
-    } finally { setIsChatLoading(false); }
+      setChatLog(prev => [...prev, { role: 'model', content: "I encountered a processing error. Could you rephrase your question?" }]);
+    } finally { 
+      setIsChatLoading(false); 
+    }
   };
 
   useEffect(() => {
@@ -427,7 +313,6 @@ const App: React.FC = () => {
     }
   }, [chatLog, isChatLoading]);
 
-  // Waterfall Splitter Utility
   const renderWaterfallMessage = (content: string, role: string) => {
     if (role === 'user') return content;
     const blocks = content.split('\n').filter(b => b.trim().length > 0);
@@ -435,14 +320,13 @@ const App: React.FC = () => {
       <div 
         key={i} 
         className="waterfall-block mb-3" 
-        style={{ animationDelay: `${i * 200}ms` }}
+        style={{ animationDelay: `${i * 150}ms` }}
       >
         {block}
       </div>
     ));
   };
 
-  // --- CORE APP LOGIC ---
   const handleDownloadPDF = async () => {
     if (!studyData || !exportRef.current) return;
     setIsDownloading(true);
@@ -465,7 +349,7 @@ const App: React.FC = () => {
     if (!studyData) return;
     setIsExportMenuOpen(false);
     const title = studyData.title || 'Study Guide';
-    const content = `# ${title}\n\n## Summary\n${studyData.summary}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}`;
+    const content = `# ${title}\n\n## Summary\n${summaryText}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}`;
     
     const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -480,26 +364,20 @@ const App: React.FC = () => {
     if (!studyData) return;
     setIsExportMenuOpen(false);
     const title = studyData.title || 'Study_Guide';
-    
-    // Header
     let csv = "Front,Back\n";
-    
-    // Add Vocabulary
     studyData.vocabulary.forEach(v => {
       const front = v.word.replace(/"/g, '""');
       const back = v.definition.replace(/"/g, '""');
       csv += `"${front}","${back}"\n`;
     });
-    
-    // Add Quiz Questions
     studyData.quiz.forEach((q, i) => {
       const front = `Question ${i+1}: ${q.question}`.replace(/"/g, '""');
       const back = `Correct Answer: ${q.options[q.correctAnswerIndex]}`.replace(/"/g, '""');
       csv += `"${front}","${back}"\n`;
     });
-
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
+    // Fix: Declare the 'a' variable to resolve the "Cannot find name 'a'" error
     const a = document.createElement('a');
     a.href = url;
     a.download = `${title.replace(/\s+/g, '_')}_Anki.csv`;
@@ -512,8 +390,6 @@ const App: React.FC = () => {
     setState(AppState.LOADING);
     setError(null);
     setPrefetchedBuffer(null);
-    setIsPremiumLocked(true);
-    setIsPremiumUnavailable(false);
     setChatLog([]);
     setActiveSessionId(null);
     stopAllPlayback();
@@ -522,7 +398,7 @@ const App: React.FC = () => {
       const data = await processLectureNotes(notes, fileData);
       setStudyData(data);
       setState(AppState.SUCCESS);
-      prefetchAudio(data.summary);
+      prefetchAudio(data.summary, data.audioInstruction);
       saveSessionToHistory(data, notes, selectedFile?.name || "Text Snippet");
     } catch (err) {
       setError("An error occurred while processing your material.");
@@ -537,7 +413,7 @@ const App: React.FC = () => {
     setChatLog(session.chatLog || []);
     setActiveSessionId(session.id);
     setState(AppState.SUCCESS);
-    prefetchAudio(session.studyData.summary);
+    prefetchAudio(session.studyData.summary, session.studyData.audioInstruction);
     setIsSidebarOpen(false);
   };
 
@@ -551,8 +427,6 @@ const App: React.FC = () => {
     setChatLog([]);
     setActiveSessionId(null);
     setPrefetchedBuffer(null);
-    setIsPremiumLocked(true);
-    setIsPremiumUnavailable(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -560,16 +434,11 @@ const App: React.FC = () => {
     ? "bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl" 
     : "bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl";
 
-  const getPremiumLabel = () => {
-    if (isPremiumUnavailable) return 'Cloud Unavailable';
-    if (isPremiumLocked) return '✨ Tuning Voice...';
-    if (activeMode !== 'premium') return 'PREMIUM VOICE';
-    return playbackState === 'playing' ? 'PAUSE' : 'RESUME';
-  };
-
-  const getActiveLabel = () => {
-    if (activeMode !== 'active') return 'ACTIVE READER';
-    return playbackState === 'playing' ? 'PAUSE' : 'RESUME';
+  const getPlaybackLabel = () => {
+    if (isAudioLoading) return '✨ GENERATING...';
+    if (playbackState === 'playing') return 'PAUSE AUDIO';
+    if (playbackState === 'paused') return 'RESUME AUDIO';
+    return 'PLAY SUMMARY';
   };
 
   const pinnedSessions = savedSessions.filter(s => s.isPinned);
@@ -636,21 +505,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen pb-20 transition-all duration-700 relative overflow-hidden flex ${isDark ? 'bg-[#0a0a0c] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
-      
-      {/* Toast Notification */}
-      {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] animate-spring-up">
-          <div className={`px-6 py-3 rounded-full backdrop-blur-3xl border shadow-2xl flex items-center gap-3 font-bold text-sm ${isDark ? 'bg-indigo-950/80 border-indigo-500/30 text-indigo-100' : 'bg-white/90 border-indigo-200 text-indigo-900'}`}>
-             <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-             {toast.message}
-             <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100 transition-opacity">
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" /></svg>
-             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Enhanced Sidebar Component */}
       <aside 
         onClick={() => setActiveMenuId(null)}
         className={`fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-indigo-950/40 border-r border-white/5 shadow-indigo-900/20' : 'bg-white/95 border-r border-slate-200 shadow-slate-200'} backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col`}
@@ -686,7 +540,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0" onClick={() => { setActiveMenuId(null); setIsExportMenuOpen(false); }}>
         {isDark && (
           <>
@@ -704,7 +557,7 @@ const App: React.FC = () => {
               <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.827a1 1 0 00-.788 0l-7 3a1 1 0 000 1.848l7 3a1 1 0 00.788 0l7-3a1 1 0 000-1.848l-7-3zM14 9.528v2.736a1 1 0 01-.529.883L10 14.613l-3.471-1.466A1 1 0 016 12.264V9.528l4 1.714 4-1.714z" /></svg>
               </div>
-              <h1 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Lumina</h1>
+              <h1 className={`breakthrough-text text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Lumina</h1>
             </div>
             
             <div className="flex items-center gap-3">
@@ -757,7 +610,6 @@ const App: React.FC = () => {
           ) : studyData ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 pb-20">
               <div className="lg:col-span-2 space-y-12">
-                {/* Core Summary */}
                 <section className={`p-10 md:p-12 rounded-[3.5rem] relative overflow-hidden transition-all animate-spring-up ${glassCardClass}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 relative z-10">
                     <div className="flex items-center gap-4">
@@ -770,37 +622,26 @@ const App: React.FC = () => {
                       <div className="flex items-center gap-2 p-1 bg-black/10 rounded-2xl border border-white/5 backdrop-blur-md">
                         <button 
                           onClick={togglePremiumVoice} 
-                          disabled={isAudioLoading || isPremiumLocked || isPremiumUnavailable} 
-                          title={isPremiumUnavailable ? 'Cloud voice is at capacity' : (isPremiumLocked ? 'Connecting to high-quality voice...' : '')}
-                          className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${isPremiumUnavailable ? 'bg-zinc-800 text-zinc-500 opacity-70 cursor-not-allowed' : (isPremiumLocked ? 'opacity-50 cursor-not-allowed bg-zinc-800' : (activeMode === 'premium' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'))}`}
+                          disabled={isAudioLoading} 
+                          className={`px-6 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}
                         >
-                          {isPremiumLocked && !isPremiumUnavailable && <div className="absolute inset-0 animate-shimmer pointer-events-none opacity-40"></div>}
-                          {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' && activeMode === 'premium' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : (isPremiumUnavailable ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>))}
-                          <span>{getPremiumLabel()}</span>
+                          {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>)}
+                          <span>{getPlaybackLabel()}</span>
                         </button>
-                        {activeMode === 'premium' && (
+                        {playbackState !== 'idle' && (
                           <button onClick={stopAllPlayback} className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
-                          </button>
-                        )}
-                        <button onClick={toggleActiveReader} className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black tracking-widest uppercase ml-1 ${activeMode === 'active' ? 'bg-teal-600 text-white shadow-lg' : 'hover:bg-white/5 text-zinc-400'}`}>
-                          <span>{getActiveLabel()}</span>
-                        </button>
-                        {activeMode === 'active' && (
-                          <button onClick={stopAllPlayback} className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
                           </button>
                         )}
                       </div>
                       <Button theme={theme} variant="secondary" className={`px-5 py-2.5 text-xs font-black rounded-full border ${isCopied ? 'text-green-400 border-green-500/30' : ''}`} onClick={handleCopySummary}>{isCopied ? 'COPIED' : 'COPY'}</Button>
                     </div>
                   </div>
-                  <div className={`text-xl leading-relaxed relative z-10 ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
-                    {activeMode === 'active' ? wordSegments.map((word, idx) => (<span key={idx} className={`word-span ${currentWordIndex === idx ? 'active-word' : ''}`}>{word.text}</span>)) : <span className="whitespace-pre-line">{studyData.summary}</span>}
+                  <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-slate-700'}`}>
+                    {summaryText}
                   </div>
                 </section>
 
-                {/* Chat Section */}
                 <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all animate-spring-up delay-200 ${glassCardClass}`}>
                   <div className="flex items-center gap-5 mb-8">
                     <div className="p-3 bg-purple-500/20 text-purple-400 rounded-2xl">
@@ -809,32 +650,45 @@ const App: React.FC = () => {
                     <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Interactive Chat</h2>
                   </div>
                   
-                  <div className={`flex flex-col h-[500px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5' : 'bg-white/50 border-slate-200'}`}>
+                  <div className={`flex flex-col h-[550px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5 shadow-inner' : 'bg-white/50 border-slate-200 shadow-inner'}`}>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
-                      {chatLog.length === 0 && (
-                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40 px-10">
-                          <p className="text-lg font-medium">Ask Lumina anything about the source document.</p>
+                      {chatLog.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center opacity-30 text-center px-10">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                          <p className="text-lg font-medium">Lumina is ready. Ask anything about your notes or the summary above.</p>
                         </div>
-                      )}
-                      {chatLog.map((msg, i) => (
-                        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-message`}>
-                          <div className={`max-w-[85%] px-5 py-3 rounded-2xl text-sm leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : isDark ? 'bg-white/10 text-zinc-200 border border-white/5' : 'bg-slate-100 text-slate-800'}`}>
-                            {renderWaterfallMessage(msg.content, msg.role)}
+                      ) : (
+                        chatLog.map((msg, i) => (
+                          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-message`}>
+                            <div className={`max-w-[85%] px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : isDark ? 'bg-zinc-800/80 text-zinc-200 border border-white/5' : 'bg-white text-slate-800 border border-slate-200'}`}>
+                              {renderWaterfallMessage(msg.content, msg.role)}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                      {isChatLoading && chatLog[chatLog.length - 1]?.role === 'user' && (
+                        ))
+                      )}
+                      {isChatLoading && (
                         <div className="flex justify-start animate-message">
-                          <div className={`px-5 py-4 rounded-2xl flex gap-1.5 items-center ${isDark ? 'bg-white/10 border border-white/5' : 'bg-slate-100'}`}>
+                          <div className={`px-5 py-4 rounded-2xl flex gap-1.5 items-center ${isDark ? 'bg-zinc-800/80 border border-white/5' : 'bg-white border border-slate-200'}`}>
                             <span className="typing-dot"></span><span className="typing-dot"></span><span className="typing-dot"></span>
                           </div>
                         </div>
                       )}
                     </div>
-                    <form onSubmit={handleSendChatMessage} className={`p-5 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white/40'}`}>
-                      <div className="flex gap-3">
-                        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} disabled={isChatLoading} placeholder="Type a question..." className={`flex-1 px-6 py-3.5 rounded-full outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all input-glow-pulse ${isDark ? 'bg-white/5 border border-white/10 text-zinc-100' : 'bg-slate-50 border border-slate-200 text-slate-800'}`} />
-                        <button type="submit" disabled={!chatInput.trim() || isChatLoading} className={`p-3.5 rounded-full transition-all flex items-center justify-center hover:scale-[1.05] active:scale-95 ${!chatInput.trim() || isChatLoading ? 'opacity-30 bg-zinc-700' : 'bg-indigo-600 text-white shadow-lg'}`}>
+                    <form onSubmit={handleSendChatMessage} className={`p-6 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white/40'}`}>
+                      <div className="flex gap-4">
+                        <input 
+                          type="text" 
+                          value={chatInput} 
+                          onChange={(e) => setChatInput(e.target.value)} 
+                          disabled={isChatLoading} 
+                          placeholder="Type a question..." 
+                          className={`flex-1 px-6 py-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all input-glow-pulse ${isDark ? 'bg-white/5 border border-white/10 text-zinc-100' : 'bg-slate-50 border border-slate-200 text-slate-800'}`} 
+                        />
+                        <button 
+                          type="submit" 
+                          disabled={!chatInput.trim() || isChatLoading} 
+                          className={`w-14 h-14 rounded-2xl transition-all flex items-center justify-center hover:scale-[1.05] active:scale-95 ${!chatInput.trim() || isChatLoading ? 'opacity-30 bg-zinc-700' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'}`}
+                        >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                         </button>
                       </div>
@@ -849,11 +703,11 @@ const App: React.FC = () => {
                     </div>
                     <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Key Terms</h2>
                   </div>
-                  <div className="grid grid-cols-1 gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {studyData.vocabulary.map((item, idx) => (
-                      <div key={idx} className={`animate-vocab flex flex-col md:flex-row gap-6 md:gap-10 p-8 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-slate-50 border-slate-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
-                        <div className="md:w-1/3"><span className={`font-black uppercase text-sm tracking-[0.3em] ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.word}</span></div>
-                        <div className="md:w-2/3"><p className={`text-lg transition-colors opacity-80 ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>{item.definition}</p></div>
+                      <div key={idx} className={`animate-vocab flex flex-col gap-4 p-8 rounded-3xl border transition-all duration-500 ${isDark ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-slate-50 border-slate-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
+                        <span className={`font-black uppercase text-xs tracking-[0.3em] ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.word}</span>
+                        <p className={`text-sm transition-colors opacity-80 leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>{item.definition}</p>
                       </div>
                     ))}
                   </div>
@@ -863,53 +717,21 @@ const App: React.FC = () => {
               <div className="lg:col-span-1 space-y-10 animate-spring-up delay-200">
                 <div className="sticky top-28">
                   <Quiz questions={studyData.quiz} theme={theme} />
-                  
                   <div className="mt-10 p-10 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-[3rem] text-white shadow-2xl relative overflow-hidden group border border-white/10">
                     <div className="relative z-10">
                       <h4 className="font-black text-2xl mb-4 tracking-tight">Review Session</h4>
-                      <p className="text-indigo-100 text-lg mb-8 leading-relaxed opacity-90">Export your materials or start fresh.</p>
                       <div className="space-y-4">
-                        <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 backdrop-blur-md rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
-                        
-                        <div className="relative">
-                          <Button 
-                            theme={theme} 
-                            variant="primary" 
-                            className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2" 
-                            onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }}
-                            isLoading={isDownloading}
-                          >
-                            {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
-                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                          </Button>
-
-                          {/* Export Dropdown Menu */}
-                          {isExportMenuOpen && (
-                            <div className={`absolute bottom-full mb-2 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden ${isDark ? 'bg-indigo-950/90 border-white/10' : 'bg-white/95 border-slate-200'}`}>
-                              <button 
-                                onClick={handleDownloadPDF} 
-                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                                PDF Document
-                              </button>
-                              <button 
-                                onClick={handleExportToNotion} 
-                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 text-zinc-300 border-white/5' : 'hover:bg-slate-100 text-slate-700 border-slate-100'}`}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 4v4h4" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h1M7 12h6M7 16h6" /></svg>
-                                Notion (.md)
-                              </button>
-                              <button 
-                                onClick={handleExportToAnki} 
-                                className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t ${isDark ? 'hover:bg-white/10 text-zinc-300 border-white/5' : 'hover:bg-slate-100 text-slate-700 border-slate-100'}`}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                                Flashcards (.csv)
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <Button theme={theme} variant="outline" className="w-full py-4 !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 rounded-2xl font-black text-[10px] tracking-widest" onClick={reset}>NEW SESSION</Button>
+                        <Button theme={theme} variant="primary" className="w-full py-4 bg-white text-indigo-900 hover:bg-slate-100 rounded-2xl border-none font-black text-[10px] tracking-widest flex items-center gap-2 justify-center" onClick={(e) => { e.stopPropagation(); setIsExportMenuOpen(!isExportMenuOpen); }} isLoading={isDownloading}>
+                          {!isDownloading && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>} EXPORT GUIDE
+                        </Button>
+                        {isExportMenuOpen && (
+                          <div className={`absolute bottom-full mb-2 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden ${isDark ? 'bg-indigo-950/90 border-white/10' : 'bg-white/95 border-slate-200'}`}>
+                            <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}>PDF Document</button>
+                            <button onClick={handleExportToNotion} className="w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t border-white/5">Notion (.md)</button>
+                            <button onClick={handleExportToAnki} className="w-full px-5 py-4 text-left text-xs font-black flex items-center gap-4 transition-colors tracking-widest uppercase border-t border-white/5">Flashcards (.csv)</button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -917,15 +739,16 @@ const App: React.FC = () => {
               </div>
             </div>
           ) : null}
+          <div ref={exportRef} style={{ display: 'none', width: '800px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, sans-serif' }}>
+            <h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800', borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}>STUDY GUIDE</h1>
+            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2>
+            <p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{summaryText}</p>
+            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>
+            {studyData?.vocabulary.map((v, i) => (<div key={i} style={{ marginBottom: '15px' }}><div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div><div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div></div>))}
+            <h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>QUIZ</h2>
+            {studyData?.quiz.map((q, i) => (<div key={i} style={{ marginBottom: '20px' }}><div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>{q.options.map((opt, optI) => (<div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>[{String.fromCharCode(65 + optI)}] {opt}</div>))}</div>))}
+          </div>
         </main>
-      </div>
-
-      {/* Hidden Export Template */}
-      <div ref={exportRef} style={{ display: 'none', width: '800px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, sans-serif' }}>
-        <div style={{ borderBottom: '4px solid #000', paddingBottom: '20px', marginBottom: '30px' }}><h1 style={{ fontSize: '32px', margin: '0', fontWeight: '800' }}>STUDY GUIDE</h1><p style={{ margin: '5px 0 0', opacity: 0.6, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px' }}>Lumina Buddy</p></div>
-        <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>SUMMARY</h2><p style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>{studyData?.summary}</p></div>
-        <div style={{ marginBottom: '40px' }}><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>KEY TERMS</h2>{studyData?.vocabulary.map((v, i) => (<div key={i} style={{ marginBottom: '15px' }}><div style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>{v.word}</div><div style={{ fontSize: '13px', lineHeight: '1.4' }}>{v.definition}</div></div>))}</div>
-        <div><h2 style={{ fontSize: '20px', borderBottom: '2px solid #000', display: 'inline-block', marginBottom: '15px', paddingBottom: '5px' }}>QUIZ</h2>{studyData?.quiz.map((q, i) => (<div key={i} style={{ marginBottom: '20px' }}><div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>{i + 1}. {q.question}</div>{q.options.map((opt, optI) => (<div key={optI} style={{ fontSize: '13px', marginLeft: '15px', marginBottom: '4px' }}>[{String.fromCharCode(65 + optI)}] {opt}</div>))}</div>))}</div>
       </div>
     </div>
   );
