@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppState, StudyData, ChatMessage, StudySession } from './types';
 import { processLectureNotes, generateSpeech, FileData, askQuestionAboutDocumentStream } from './services/geminiService';
@@ -513,6 +514,7 @@ const App: React.FC = () => {
     a.href = url;
     a.download = `${studyData.title?.replace(/\s+/g, '_') || 'Lumina_Study_Guide'}.md`;
     a.click();
+    // Fixed: Correctly revoke the object URL (passing string, not Blob)
     URL.revokeObjectURL(url);
     setIsExportMenuOpen(false);
   };
@@ -727,19 +729,23 @@ const App: React.FC = () => {
           
           {pinnedSessions.length > 0 && (
             <div>
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2 text-[#1A237E]">Pinned</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-4 px-2 text-slate-400">Pinned</h3>
               {pinnedSessions.map(session => <SessionItem key={session.id} session={session} />)}
             </div>
           )}
 
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 mb-4 px-2 text-[#1A237E]">Recent</h3>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-4 px-2 text-slate-400">Recent</h3>
             {recentSessions.length === 0 && pinnedSessions.length === 0 ? (
               <div className="text-center py-20 opacity-20 italic text-sm">Empty History</div>
             ) : (
               recentSessions.map(session => <SessionItem key={session.id} session={session} />)
             )}
           </div>
+        </div>
+
+        <div className="p-4 text-right border-t border-white/5">
+           <span className="text-[11px] font-medium opacity-60 tracking-tight text-slate-400">v0.1 - Beta</span>
         </div>
       </aside>
 
@@ -880,7 +886,7 @@ const App: React.FC = () => {
                       ) : (
                         chatLog.map((msg, i) => (
                           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-message`}>
-                            <div className={`max-w-[85%] px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-[#1A237E] text-white shadow-[0_0_15px_rgba(26,35,126,0.3)]' : isDark ? 'bg-zinc-800/80 text-zinc-200 border border-white/5' : 'bg-white text-[#2D2D2D] border border-[#E0E4F0]'}`}>
+                            <div className={`max-w-[85%] px-5 py-3.5 rounded-2xl text-[15px] Bird leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-[#1A237E] text-white shadow-[0_0_15px_rgba(26,35,126,0.3)]' : isDark ? 'bg-zinc-800/80 text-zinc-200 border border-white/5' : 'bg-white text-[#2D2D2D] border border-[#E0E4F0]'}`}>
                               {renderWaterfallMessage(msg.content, msg.role)}
                             </div>
                           </div>
