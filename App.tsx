@@ -285,7 +285,7 @@ const App: React.FC = () => {
                 <span 
                   key={sIdx} 
                   className={`
-                    ${seg.type === 'word' ? `word-span ${isActive ? 'active-word' : ''}` : ''} 
+                    ${seg.type === 'word' ? `word-span ${isActive ? (isDark ? 'active-word' : 'active-word-light') : ''}` : ''} 
                     ${seg.isBold ? (isDark ? 'text-indigo-400 font-black' : 'text-[#1A237E] font-black') : ''}
                   `}
                 >
@@ -622,7 +622,7 @@ const App: React.FC = () => {
 
   const glassCardClass = isDark 
     ? "bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl neon-glow" 
-    : "bg-white border border-[#E0E4F0] shadow-[0_2px_4px_rgba(0,0,0,0.05)] neon-glow";
+    : "bg-[#f8fafc] border border-[#e2e8f0] shadow-xl shadow-slate-200/50 neon-glow";
 
   const getPlaybackLabel = () => {
     if (isAudioLoading) return '✨ GENERATING...';
@@ -857,7 +857,7 @@ const App: React.FC = () => {
                     <h2 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-[#1A237E]'}`}>Interactive Chat</h2>
                   </div>
                   
-                  <div className={`flex flex-col h-[550px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5 shadow-inner' : 'bg-[#F4F4F9] border-[#E0E4F0] shadow-inner'}`}>
+                  <div className={`flex flex-col h-[550px] border rounded-[2.5rem] overflow-hidden ${isDark ? 'bg-black/20 border-white/5 shadow-inner' : 'bg-[#f8fafc] border-[#e2e8f0] shadow-inner'}`}>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
                       {chatLog.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center opacity-30 text-center px-10">
@@ -881,7 +881,7 @@ const App: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <form onSubmit={handleSendChatMessage} className={`p-6 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-[#E0E4F0] bg-white'}`}>
+                    <form onSubmit={handleSendChatMessage} className={`p-6 border-t ${isDark ? 'border-white/5 bg-black/40' : 'border-[#e2e8f0] bg-white'}`}>
                       <div className="flex gap-4">
                         <input 
                           type="text" 
@@ -944,7 +944,7 @@ const App: React.FC = () => {
                           </button>
                           
                           {isExportMenuOpen && (
-                            <div className={`absolute bottom-full mb-3 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden z-[100] ${isDark ? 'bg-indigo-950/95 border-white/10' : 'bg-white border-[#E0E4F0]'}`}>
+                            <div className={`absolute bottom-full mb-3 left-0 w-full rounded-2xl shadow-2xl backdrop-blur-3xl animate-spring-up border flex flex-col overflow-hidden z-[100] ${isDark ? 'bg-indigo-950/95 border-white/10' : 'bg-white border-[#e2e8f0]'}`}>
                               <button onClick={handleDownloadPDF} className={`w-full px-5 py-4 text-left text-[10px] font-black flex items-center gap-4 transition-colors tracking-widest uppercase ${isDark ? 'hover:bg-white/10 text-zinc-300' : 'hover:bg-slate-50 text-[#2D2D2D]'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                                 PDF Document

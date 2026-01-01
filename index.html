@@ -143,13 +143,25 @@
             color: inherit;
         }
 
+        /* Dark Mode Highlighting */
         .active-word {
             color: #ffffff !important;
             transform: scale(1.1);
             text-shadow: 0 0 10px rgba(92, 107, 192, 0.8), 0 0 20px rgba(92, 107, 192, 0.4);
-            background: rgba(92, 107, 192, 0.2);
+            background: rgba(92, 107, 192, 0.3);
             border-radius: 4px;
             padding: 0 2px;
+            z-index: 10;
+        }
+
+        /* Light Mode Highlighting - Darker Background for Visibility */
+        .active-word-light {
+            background: #dbeafe; /* Slightly darker light blue (blue-100) */
+            color: #1e3a8a !important; /* Dark blue text */
+            transform: scale(1.08);
+            border-radius: 4px;
+            padding: 0 2px;
+            box-shadow: 0 2px 4px rgba(92, 107, 192, 0.2);
             z-index: 10;
         }
 
