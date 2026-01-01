@@ -113,7 +113,14 @@ const App: React.FC = () => {
     playedOffsetRef.current = 0;
     setPlaybackState('idle');
 
-    window.speechSynthesis.cancel();
+    // Safe Speech Synthesis Cancellation
+    if (window.speechSynthesis.speaking) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {
+        console.debug("Silent catch: Speech synthesis cancel failed", e);
+      }
+    }
     setReaderStatus('idle');
     setReaderCharIndex(-1);
     readerUtteranceRef.current = null;
@@ -210,6 +217,8 @@ const App: React.FC = () => {
     };
 
     utterance.onerror = (err) => {
+      // Ignore 'interrupted' errors caused by manual cancellation
+      if ((err as any).error === 'interrupted') return;
       console.error("Speech Synthesis Error:", err);
       setReaderStatus('idle');
       setReaderCharIndex(-1);
@@ -326,7 +335,11 @@ const App: React.FC = () => {
     if (isQuotaExceeded) return;
 
     if (readerStatus !== 'idle') {
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.speaking) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch (e) {}
+      }
       setReaderStatus('idle');
       setReaderCharIndex(-1);
     }
