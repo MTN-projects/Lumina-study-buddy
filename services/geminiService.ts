@@ -31,7 +31,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promis
 
 /**
  * Summarizes old chat history to maintain context without hitting token limits.
- * Uses Gemini 3 Flash with minimal thinking for speed.
  */
 async function summarizeOldHistory(history: ChatMessage[]): Promise<string> {
   if (history.length === 0) return "";
@@ -42,7 +41,7 @@ async function summarizeOldHistory(history: ChatMessage[]): Promise<string> {
     model: "gemini-3-flash-preview",
     contents: `Summarize the following study session chat history concisely. Focus on the core concepts asked and explained. Keep it technical and brief:\n\n${conversation}`,
     config: {
-      thinkingConfig: { thinkingBudget: 0 } // Minimal thinking level for background tasks
+      thinkingConfig: { thinkingBudget: 0 }
     }
   });
   
@@ -50,7 +49,7 @@ async function summarizeOldHistory(history: ChatMessage[]): Promise<string> {
 }
 
 /**
- * Initial Synthesis: Uses 'Medium' thinking level for high-quality, PhD-level reasoning.
+ * Initial Synthesis: Enforces a structured summary with bold titles and paragraph separation.
  */
 export const processLectureNotes = async (content: string, fileData?: FileData): Promise<StudyData> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -58,7 +57,10 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   const textPart = {
     text: `You are an advanced academic assistant. Analyze the material to create a PhD-level study guide.
     
-    1. DETAILED SUMMARY: High-fidelity, multi-section summary with bold headings.
+    1. DETAILED SUMMARY: High-fidelity, multi-section summary.
+       - Each major topic MUST start with a **Bold Section Title** (e.g., **The Mechanism of Action**).
+       - STRICT REQUIREMENT: Each paragraph and section MUST be separated by EXACTLY two newline characters (\\n\\n) to prevent text merging.
+       - NEVER merge unrelated concepts into a single block. Keep them distinct.
     2. LANGUAGE: Detect source language and use it throughout.
     3. VOCABULARY: 10 technical terms with academic definitions.
     4. QUIZ: 10 challenging multiple-choice questions.
@@ -83,7 +85,7 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
       model: "gemini-3-flash-preview",
       contents: { parts },
       config: {
-        thinkingConfig: { thinkingBudget: 16000 }, // Medium level reasoning for synthesis
+        thinkingConfig: { thinkingBudget: 16000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -133,10 +135,6 @@ export const processLectureNotes = async (content: string, fileData?: FileData):
   });
 };
 
-/**
- * Chat Support: Uses Rolling Window Memory and Minimal Thinking for lowest latency.
- * PINS the PDF summary at the start of the context window.
- */
 export const askQuestionAboutDocumentStream = async (
   question: string,
   history: ChatMessage[],
@@ -145,7 +143,6 @@ export const askQuestionAboutDocumentStream = async (
 ) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // ROLLING WINDOW: Summarize history older than last 10 turns
   let processedHistory = [...history];
   let backgroundContext = "";
   
@@ -157,7 +154,6 @@ export const askQuestionAboutDocumentStream = async (
     processedHistory = recentMessages;
   }
 
-  // HYBRID MEMORY: PIN the Synthesis Summary to the beginning of the prompt context
   const systemInstruction = `You are Lumina. Use the PINNED CONTEXT below as your primary academic source.
   
   [PINNED CONTEXT - SOURCE SUMMARY]:
@@ -190,7 +186,7 @@ export const askQuestionAboutDocumentStream = async (
       contents,
       config: {
         systemInstruction,
-        thinkingConfig: { thinkingBudget: 0 } // Minimal level for fast conversational response
+        thinkingConfig: { thinkingBudget: 0 }
       }
     });
   });

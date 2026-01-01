@@ -46,7 +46,6 @@ const App: React.FC = () => {
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  // Sidebar & History State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [savedSessions, setSavedSessions] = useState<StudySession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -54,16 +53,13 @@ const App: React.FC = () => {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  // Export Menu State
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
-  // Chat State
   const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Premium Voice State (Gemini Service)
   const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
@@ -73,7 +69,6 @@ const App: React.FC = () => {
   const startTimeRef = useRef<number>(0);
   const playedOffsetRef = useRef<number>(0);
 
-  // Active Reader State (Web Speech API)
   const [readerStatus, setReaderStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [readerCharIndex, setReaderCharIndex] = useState(-1);
   const readerUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -83,11 +78,9 @@ const App: React.FC = () => {
 
   const isDark = theme === 'dark';
 
-  // Memoized history derivations
   const pinnedSessions = useMemo(() => savedSessions.filter(s => s.isPinned), [savedSessions]);
   const recentSessions = useMemo(() => savedSessions.filter(s => !s.isPinned), [savedSessions]);
 
-  // Load History Effect
   useEffect(() => {
     const history = localStorage.getItem('lumina_history_v2');
     if (history) {
@@ -99,7 +92,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync Chat History to Local Storage
   useEffect(() => {
     if (activeSessionId && chatLog.length > 0) {
       const updated = savedSessions.map(s => 
@@ -110,11 +102,7 @@ const App: React.FC = () => {
     }
   }, [chatLog, activeSessionId]);
 
-  /**
-   * Master Reset Audio Function: Clears all buffers and resets playing states.
-   */
   const resetAudio = (clearPrefetch = true) => {
-    // 1. Kill Premium Voice Node
     if (sourceRef.current) {
       try {
         sourceRef.current.onended = null;
@@ -125,13 +113,11 @@ const App: React.FC = () => {
     playedOffsetRef.current = 0;
     setPlaybackState('idle');
 
-    // 2. Kill Active Reader (SpeechSynthesis)
     window.speechSynthesis.cancel();
     setReaderStatus('idle');
     setReaderCharIndex(-1);
     readerUtteranceRef.current = null;
 
-    // 3. Clear Buffers if requested
     if (clearPrefetch) {
       setPrefetchedBuffer(null);
     }
@@ -188,7 +174,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Active Reader Logic ---
   const handleToggleReader = () => {
     if (readerStatus === 'playing') {
       window.speechSynthesis.pause();
@@ -202,19 +187,17 @@ const App: React.FC = () => {
       return;
     }
 
-    // Status is 'idle', start fresh
     if (!summaryText) return;
 
-    // Stop Premium Voice if playing
     if (playbackState === 'playing') {
       resetAudio(false);
     }
 
+    // Pass the text to SpeechSynthesis, it handles basic markers but we map the indices manually
     const utterance = new SpeechSynthesisUtterance(summaryText);
     utterance.lang = studyData?.languageCode || 'en-US';
     
     utterance.onboundary = (event) => {
-      // Precise word-level tracking
       if (event.name === 'word') {
         setReaderCharIndex(event.charIndex);
       }
@@ -238,49 +221,84 @@ const App: React.FC = () => {
     setReaderStatus('playing');
   };
 
-  // Word-level splitting for highlighting (preserves all characters)
+  /**
+   * Word-level and Paragraph segmenting.
+   * Tracks absolute global character offsets to ensure perfect sync with TTS boundary events.
+   */
   const wordSegments = useMemo(() => {
     if (!summaryText) return [];
-    // Split into words (\w+) and everything else
-    const parts = summaryText.split(/(\w+)/g);
+    // Split by markers, newline patterns, or word tokens
+    const parts = summaryText.split(/(\*\*|\n\n|\n|\w+)/g);
     let currentPos = 0;
-    return parts.filter(p => p.length > 0).map(part => {
+    let isBold = false;
+    
+    return parts.filter(p => p !== undefined && p.length > 0).map(part => {
       const start = currentPos;
       const end = currentPos + part.length;
       currentPos = end;
-      return {
-        text: part,
-        start,
-        end,
-        isWord: /\w/.test(part)
-      };
+      
+      if (part === '**') {
+        isBold = !isBold;
+        return { text: part, start, end, type: 'marker', isBold };
+      }
+      
+      if (part === '\n\n') return { text: part, start, end, type: 'parabreak' };
+      if (part === '\n') return { text: part, start, end, type: 'linebreak' };
+
+      const isWord = /\w/.test(part);
+      return { text: part, start, end, type: isWord ? 'word' : 'text', isBold };
     });
   }, [summaryText]);
 
-  const renderSummaryWithHighlight = () => {
-    if (readerStatus === 'idle' || readerCharIndex === -1) {
-      return summaryText;
-    }
+  /**
+   * Re-groups content segments into separate paragraphs for structured display.
+   */
+  const summaryParagraphs = useMemo(() => {
+    const p: any[][] = [[]];
+    wordSegments.forEach(seg => {
+      if (seg.type === 'parabreak') {
+        p.push([]);
+      } else {
+        p[p.length - 1].push(seg);
+      }
+    });
+    // Remove empty paragraphs
+    return p.filter(para => para.length > 0);
+  }, [wordSegments]);
 
+  const renderSummaryWithHighlight = () => {
+    if (!summaryText) return null;
+    
     return (
-      <>
-        {wordSegments.map((seg, idx) => {
-          // Highlight if this is a word and the reader is currently within its character range
-          const isActive = seg.isWord && readerCharIndex >= seg.start && readerCharIndex < seg.end;
-          return (
-            <span 
-              key={idx} 
-              className={seg.isWord ? `word-span ${isActive ? 'active-word' : ''}` : ''}
-            >
-              {seg.text}
-            </span>
-          );
-        })}
-      </>
+      <div className="space-y-8">
+        {summaryParagraphs.map((para, pIdx) => (
+          <p key={pIdx} className={`leading-relaxed relative z-10 ${pIdx === 0 ? 'text-2xl font-medium' : 'text-xl'}`}>
+            {para.map((seg, sIdx) => {
+              const isActive = seg.type === 'word' && readerCharIndex >= seg.start && readerCharIndex < seg.end;
+              
+              // Hide formatting markers but keep them in DOM for index alignment
+              if (seg.type === 'marker') {
+                return <span key={sIdx} className="hidden">{seg.text}</span>;
+              }
+
+              return (
+                <span 
+                  key={sIdx} 
+                  className={`
+                    ${seg.type === 'word' ? `word-span ${isActive ? 'active-word' : ''}` : ''} 
+                    ${seg.isBold ? (isDark ? 'text-indigo-400 font-black' : 'text-[#1A237E] font-black') : ''}
+                  `}
+                >
+                  {seg.text}
+                </span>
+              );
+            })}
+          </p>
+        ))}
+      </div>
     );
   };
 
-  // --- Premium Voice Logic ---
   const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
     if (!audioContextRef.current) return;
     const ctx = audioContextRef.current;
@@ -307,7 +325,6 @@ const App: React.FC = () => {
   const togglePremiumVoice = async () => {
     if (isQuotaExceeded) return;
 
-    // Stop Reader if active
     if (readerStatus !== 'idle') {
       window.speechSynthesis.cancel();
       setReaderStatus('idle');
@@ -829,9 +846,7 @@ const App: React.FC = () => {
                       <Button theme={theme} variant="secondary" className={`px-5 py-2.5 text-xs font-black rounded-full border ${isCopied ? 'text-green-600 border-green-500/30 bg-green-50' : isDark ? '' : 'text-[#5C6BC0] border-[#5C6BC0]/20 bg-white'}`} onClick={handleCopySummary}>{isCopied ? 'COPIED' : 'COPY'}</Button>
                     </div>
                   </div>
-                  <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-[#2D2D2D]'}`}>
-                    {renderSummaryWithHighlight()}
-                  </div>
+                  {renderSummaryWithHighlight()}
                 </section>
 
                 <section className={`p-10 md:p-12 rounded-[3.5rem] transition-all animate-spring-up delay-200 ${glassCardClass}`}>
