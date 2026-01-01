@@ -63,25 +63,29 @@ const App: React.FC = () => {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Playback State
+  // Premium Voice State (Gemini Service)
   const [playbackState, setPlaybackState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [prefetchedBuffer, setPrefetchedBuffer] = useState<AudioBuffer | null>(null);
-  
-  // Active Reader State (Browser TTS)
-  const [isActiveReaderPlaying, setIsActiveReaderPlaying] = useState(false);
-  const [currentWordIndex, setCurrentWordIndex] = useState(-1);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
   const playedOffsetRef = useRef<number>(0);
-  
+
+  // Active Reader State (Web Speech API)
+  const [readerStatus, setReaderStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
+  const [readerCharIndex, setReaderCharIndex] = useState(-1);
+  const readerUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const exportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDark = theme === 'dark';
+
+  // Memoized history derivations
+  const pinnedSessions = useMemo(() => savedSessions.filter(s => s.isPinned), [savedSessions]);
+  const recentSessions = useMemo(() => savedSessions.filter(s => !s.isPinned), [savedSessions]);
 
   // Load History Effect
   useEffect(() => {
@@ -95,7 +99,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync Chat History to Local Storage when chatLog changes
+  // Sync Chat History to Local Storage
   useEffect(() => {
     if (activeSessionId && chatLog.length > 0) {
       const updated = savedSessions.map(s => 
@@ -106,56 +110,31 @@ const App: React.FC = () => {
     }
   }, [chatLog, activeSessionId]);
 
-  const saveSessionToHistory = (data: StudyData, originalNotes: string, fileName: string) => {
-    const newSession: StudySession = {
-      id: Date.now().toString(),
-      timestamp: Date.now(),
-      fileName: fileName || "Untitled Note",
-      title: data.title || "AI Generated Study Guide",
-      studyData: data,
-      chatLog: [],
-      originalNotes: originalNotes,
-      isPinned: false
-    };
-    const updatedSessions = [newSession, ...savedSessions];
-    setSavedSessions(updatedSessions);
-    setActiveSessionId(newSession.id);
-    localStorage.setItem('lumina_history_v2', JSON.stringify(updatedSessions));
-  };
+  /**
+   * Master Reset Audio Function: Clears all buffers and resets playing states.
+   */
+  const resetAudio = (clearPrefetch = true) => {
+    // 1. Kill Premium Voice Node
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.onended = null;
+        sourceRef.current.stop();
+      } catch (e) {}
+      sourceRef.current = null;
+    }
+    playedOffsetRef.current = 0;
+    setPlaybackState('idle');
 
-  const updateHistory = (updated: StudySession[]) => {
-    setSavedSessions(updated);
-    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
-  };
+    // 2. Kill Active Reader (SpeechSynthesis)
+    window.speechSynthesis.cancel();
+    setReaderStatus('idle');
+    setReaderCharIndex(-1);
+    readerUtteranceRef.current = null;
 
-  const togglePin = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedSessions.map(s => s.id === id ? { ...s, isPinned: !s.isPinned } : s);
-    updateHistory(updated);
-    setActiveMenuId(null);
-  };
-
-  const startRename = (session: StudySession, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRenamingId(session.id);
-    setRenameValue(session.title);
-    setActiveMenuId(null);
-  };
-
-  const handleRenameSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!renamingId) return;
-    const updated = savedSessions.map(s => s.id === renamingId ? { ...s, title: renameValue } : s);
-    updateHistory(updated);
-    setRenamingId(null);
-  };
-
-  const deleteSession = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedSessions.filter(s => s.id !== id);
-    if (activeSessionId === id) reset();
-    updateHistory(updated);
-    setActiveMenuId(null);
+    // 3. Clear Buffers if requested
+    if (clearPrefetch) {
+      setPrefetchedBuffer(null);
+    }
   };
 
   const toggleTheme = () => {
@@ -165,6 +144,7 @@ const App: React.FC = () => {
   const summaryText = useMemo(() => studyData?.summary || "", [studyData?.summary]);
 
   const prefetchAudio = async (text: string, instruction: string) => {
+    if (isQuotaExceeded) return;
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -173,8 +153,11 @@ const App: React.FC = () => {
       const audioData = decode(base64);
       const buffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
       setPrefetchedBuffer(buffer);
+      setIsQuotaExceeded(false);
     } catch (err: any) {
-      console.warn("Retrying Premium Voice connection...");
+      if (err?.message?.includes('429')) {
+        setIsQuotaExceeded(true);
+      }
     }
   };
 
@@ -205,68 +188,130 @@ const App: React.FC = () => {
     }
   };
 
-  const stopAllPlayback = () => {
-    // Stop Premium Voice
-    if (sourceRef.current) {
-      try { 
-        sourceRef.current.onended = null; 
-        sourceRef.current.stop(); 
-      } catch (e) {}
-      sourceRef.current = null;
-    }
-    playedOffsetRef.current = 0;
-    setPlaybackState('idle');
-
-    // Stop Active Reader
-    window.speechSynthesis.cancel();
-    setIsActiveReaderPlaying(false);
-    setCurrentWordIndex(-1);
-  };
-
-  const toggleActiveReader = () => {
-    if (isActiveReaderPlaying) {
+  // --- Active Reader Logic ---
+  const handleToggleReader = () => {
+    if (readerStatus === 'playing') {
       window.speechSynthesis.pause();
-      setIsActiveReaderPlaying(false);
+      setReaderStatus('paused');
       return;
     }
 
-    if (window.speechSynthesis.paused && utteranceRef.current) {
+    if (readerStatus === 'paused') {
       window.speechSynthesis.resume();
-      setIsActiveReaderPlaying(true);
+      setReaderStatus('playing');
       return;
     }
+
+    // Status is 'idle', start fresh
+    if (!summaryText) return;
 
     // Stop Premium Voice if playing
     if (playbackState === 'playing') {
-      stopAllPlayback();
+      resetAudio(false);
     }
 
     const utterance = new SpeechSynthesisUtterance(summaryText);
     utterance.lang = studyData?.languageCode || 'en-US';
-    utterance.rate = 1;
     
     utterance.onboundary = (event) => {
+      // Precise word-level tracking
       if (event.name === 'word') {
-        const textUpToBoundary = summaryText.substring(0, event.charIndex);
-        const words = textUpToBoundary.trim().split(/\s+/);
-        setCurrentWordIndex(textUpToBoundary.trim() === "" ? 0 : words.length);
+        setReaderCharIndex(event.charIndex);
       }
     };
 
     utterance.onend = () => {
-      setIsActiveReaderPlaying(false);
-      setCurrentWordIndex(-1);
+      setReaderStatus('idle');
+      setReaderCharIndex(-1);
+      readerUtteranceRef.current = null;
     };
 
-    utteranceRef.current = utterance;
+    utterance.onerror = (err) => {
+      console.error("Speech Synthesis Error:", err);
+      setReaderStatus('idle');
+      setReaderCharIndex(-1);
+      readerUtteranceRef.current = null;
+    };
+
+    readerUtteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-    setIsActiveReaderPlaying(true);
+    setReaderStatus('playing');
+  };
+
+  // Word-level splitting for highlighting (preserves all characters)
+  const wordSegments = useMemo(() => {
+    if (!summaryText) return [];
+    // Split into words (\w+) and everything else
+    const parts = summaryText.split(/(\w+)/g);
+    let currentPos = 0;
+    return parts.filter(p => p.length > 0).map(part => {
+      const start = currentPos;
+      const end = currentPos + part.length;
+      currentPos = end;
+      return {
+        text: part,
+        start,
+        end,
+        isWord: /\w/.test(part)
+      };
+    });
+  }, [summaryText]);
+
+  const renderSummaryWithHighlight = () => {
+    if (readerStatus === 'idle' || readerCharIndex === -1) {
+      return summaryText;
+    }
+
+    return (
+      <>
+        {wordSegments.map((seg, idx) => {
+          // Highlight if this is a word and the reader is currently within its character range
+          const isActive = seg.isWord && readerCharIndex >= seg.start && readerCharIndex < seg.end;
+          return (
+            <span 
+              key={idx} 
+              className={seg.isWord ? `word-span ${isActive ? 'active-word' : ''}` : ''}
+            >
+              {seg.text}
+            </span>
+          );
+        })}
+      </>
+    );
+  };
+
+  // --- Premium Voice Logic ---
+  const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    
+    source.onended = () => {
+      if (sourceRef.current === source) {
+        playedOffsetRef.current = 0;
+        setPlaybackState('idle');
+        sourceRef.current = null;
+      }
+    };
+
+    sourceRef.current = source;
+    startTimeRef.current = ctx.currentTime;
+    source.start(0, offset % buffer.duration);
+    setPlaybackState('playing');
   };
 
   const togglePremiumVoice = async () => {
-    // Stop Active Reader if playing
-    if (isActiveReaderPlaying) {
-      stopAllPlayback();
+    if (isQuotaExceeded) return;
+
+    // Stop Reader if active
+    if (readerStatus !== 'idle') {
+      window.speechSynthesis.cancel();
+      setReaderStatus('idle');
+      setReaderCharIndex(-1);
     }
 
     const ctx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -277,12 +322,14 @@ const App: React.FC = () => {
         const elapsed = ctx.currentTime - startTimeRef.current;
         playedOffsetRef.current += elapsed;
         sourceRef.current.onended = null;
-        sourceRef.current.stop();
+        try { sourceRef.current.stop(); } catch (e) {}
         sourceRef.current = null;
         setPlaybackState('paused');
       }
       return;
-    } else if (playbackState === 'paused' && prefetchedBuffer) {
+    }
+
+    if (playbackState === 'paused' && prefetchedBuffer) {
       playFromBuffer(prefetchedBuffer, playedOffsetRef.current);
       return;
     }
@@ -300,31 +347,17 @@ const App: React.FC = () => {
       const audioData = decode(base64);
       const audioBuffer = await decodeAudioData(audioData, ctx, 24000, 1);
       setPrefetchedBuffer(audioBuffer);
+      setIsQuotaExceeded(false);
       playFromBuffer(audioBuffer, 0);
     } catch (err: any) {
-      console.error("Premium voice busy, retrying...");
+      console.error("Premium voice failed:", err);
+      if (err?.message?.includes('429')) {
+        setIsQuotaExceeded(true);
+      }
+      setPlaybackState('idle');
     } finally { 
       setIsAudioLoading(false); 
     }
-  };
-
-  const playFromBuffer = (buffer: AudioBuffer, offset: number) => {
-    if (!audioContextRef.current) return;
-    const ctx = audioContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.onended = () => {
-      if (playbackState === 'playing') {
-        playedOffsetRef.current = 0;
-        setPlaybackState('idle');
-      }
-    };
-    sourceRef.current = source;
-    startTimeRef.current = ctx.currentTime;
-    source.start(0, offset % buffer.duration);
-    setPlaybackState('playing');
   };
 
   const handleSendChatMessage = async (e?: React.FormEvent) => {
@@ -339,7 +372,7 @@ const App: React.FC = () => {
     setIsChatLoading(true);
     try {
       const fileData: FileData | undefined = selectedFile ? { data: selectedFile.base64, mimeType: selectedFile.mimeType } : undefined;
-      const responseStream = await askQuestionAboutDocumentStream(userMsg, newChatHistory.slice(0, -1), notes, fileData);
+      const responseStream = await askQuestionAboutDocumentStream(userMsg, newChatHistory.slice(0, -1), studyData?.summary || "", fileData);
       
       let fullAnswer = "";
       setChatLog(prev => [...prev, { role: 'model', content: "" }]);
@@ -382,28 +415,6 @@ const App: React.FC = () => {
     ));
   };
 
-  const renderSummaryText = () => {
-    if (currentWordIndex === -1) return summaryText;
-    
-    const words = summaryText.split(/(\s+)/);
-    let wordCounter = 0;
-    
-    return words.map((part, i) => {
-      if (part.trim().length === 0) return part;
-      const isActualWord = /\S/.test(part);
-      const index = isActualWord ? wordCounter++ : -1;
-      
-      return (
-        <span 
-          key={i} 
-          className={`word-span ${index === currentWordIndex ? 'active-word' : ''}`}
-        >
-          {part}
-        </span>
-      );
-    });
-  };
-
   const handleDownloadPDF = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!studyData || !exportRef.current) return;
@@ -412,17 +423,14 @@ const App: React.FC = () => {
     
     try {
       const element = exportRef.current;
-      
-      // Professional multi-page PDF rendering setup
       element.style.position = 'fixed';
       element.style.top = '0';
       element.style.left = '0';
-      element.style.width = '794px'; // A4 width in pixels at 96 DPI
-      element.style.transform = 'translateX(-200%)'; // Move far off screen
+      element.style.width = '794px';
+      element.style.transform = 'translateX(-200%)';
       element.style.display = 'block';
       element.style.background = '#ffffff';
       
-      // Wait for layout to settle
       await new Promise(r => setTimeout(r, 200));
 
       const canvas = await html2canvas(element, { 
@@ -435,24 +443,17 @@ const App: React.FC = () => {
       
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const pdf = new jsPDF('p', 'pt', 'a4');
-      
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const canvasWidth = canvas.width;
-      const canvasHeight = canvas.height;
-      
       const imgWidth = pdfWidth;
-      const imgHeight = (canvasHeight * pdfWidth) / canvasWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
       
       let heightLeft = imgHeight;
       let position = 0;
 
-      // First page
       pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
 
-      // Subsequent pages if content overflows
       while (heightLeft >= 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
@@ -466,65 +467,65 @@ const App: React.FC = () => {
       element.style.position = '';
       element.style.transform = '';
     } catch (err) {
-      console.error("Professional PDF Export failed:", err);
-      setError("Failed to generate PDF. Please try again.");
+      console.error("PDF Export failed:", err);
+      setError("Failed to generate PDF.");
     } finally { 
       setIsDownloading(false); 
     }
   };
 
-  const handleExportToNotion = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleExportToNotion = () => {
     if (!studyData) return;
-    setIsExportMenuOpen(false);
-    const title = studyData.title || 'Study Guide';
-    const content = `# ${title}\n\n## Summary\n${summaryText}\n\n## Key Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}\n\n## Quiz Questions\n${studyData.quiz.map((q, i) => `${i+1}. ${q.question}\n   - Correct Answer: ${q.options[q.correctAnswerIndex]}`).join('\n')}`;
-    
+    const content = `# ${studyData.title}\n\n## Summary\n${studyData.summary}\n\n## Vocabulary\n${studyData.vocabulary.map(v => `- **${v.word}**: ${v.definition}`).join('\n')}`;
     const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}.md`;
+    a.download = `${studyData.title?.replace(/\s+/g, '_') || 'Lumina_Study_Guide'}.md`;
     a.click();
     URL.revokeObjectURL(url);
+    setIsExportMenuOpen(false);
   };
 
-  const handleExportToAnki = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleExportToAnki = () => {
     if (!studyData) return;
-    setIsExportMenuOpen(false);
-    const title = studyData.title || 'Study_Guide';
-    let csv = "Front,Back\n";
-    
-    studyData.vocabulary.forEach(v => {
-      const front = v.word.replace(/"/g, '""');
-      const back = v.definition.replace(/"/g, '""');
-      csv += `"${front}","${back}"\n`;
-    });
-    
-    studyData.quiz.forEach((q, i) => {
-      const front = `Question: ${q.question}`.replace(/"/g, '""');
-      const back = `Correct Answer: ${q.options[q.correctAnswerIndex]}`.replace(/"/g, '""');
-      csv += `"${front}","${back}"\n`;
-    });
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csvContent = studyData.quiz.map(q => 
+      `"${q.question}","${q.options[q.correctAnswerIndex]} (Options: ${q.options.join('|')})"`
+    ).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}_Anki_Deck.csv`;
+    a.download = `${studyData.title?.replace(/\s+/g, '_') || 'Lumina_Flashcards'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setIsExportMenuOpen(false);
+  };
+
+  const saveSessionToHistory = (data: StudyData, originalNotes: string, fileName: string) => {
+    const newSession: StudySession = {
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      fileName: fileName,
+      title: data.title || "Untitled Session",
+      studyData: data,
+      chatLog: [],
+      originalNotes: originalNotes,
+      isPinned: false
+    };
+    const updated = [newSession, ...savedSessions];
+    setSavedSessions(updated);
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+    setActiveSessionId(newSession.id);
   };
 
   const handleSubmit = async () => {
     if (!notes.trim() && !selectedFile) return;
+    resetAudio();
     setState(AppState.LOADING);
     setError(null);
-    setPrefetchedBuffer(null);
     setChatLog([]);
     setActiveSessionId(null);
-    stopAllPlayback();
     try {
       const fileData: FileData | undefined = selectedFile ? { data: selectedFile.base64, mimeType: selectedFile.mimeType } : undefined;
       const data = await processLectureNotes(notes, fileData);
@@ -539,7 +540,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: StudySession) => {
-    stopAllPlayback();
+    resetAudio();
     setStudyData(session.studyData);
     setNotes(session.originalNotes);
     setChatLog(session.chatLog || []);
@@ -550,7 +551,7 @@ const App: React.FC = () => {
   };
 
   const reset = () => {
-    stopAllPlayback();
+    resetAudio();
     setState(AppState.IDLE);
     setNotes('');
     setSelectedFile(null);
@@ -558,8 +559,48 @@ const App: React.FC = () => {
     setError(null);
     setChatLog([]);
     setActiveSessionId(null);
-    setPrefetchedBuffer(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const togglePin = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedSessions.map(s => 
+      s.id === id ? { ...s, isPinned: !s.isPinned } : s
+    );
+    setSavedSessions(updated);
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+    setActiveMenuId(null);
+  };
+
+  const deleteSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedSessions.filter(s => s.id !== id);
+    setSavedSessions(updated);
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+    if (activeSessionId === id) {
+      reset();
+    }
+    setActiveMenuId(null);
+  };
+
+  const startRename = (session: StudySession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(session.id);
+    setRenameValue(session.title);
+    setActiveMenuId(null);
+  };
+
+  const handleRenameSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!renamingId) return;
+    
+    const updated = savedSessions.map(s => 
+      s.id === renamingId ? { ...s, title: renameValue || s.title } : s
+    );
+    setSavedSessions(updated);
+    localStorage.setItem('lumina_history_v2', JSON.stringify(updated));
+    setRenamingId(null);
+    setRenameValue('');
   };
 
   const glassCardClass = isDark 
@@ -568,13 +609,11 @@ const App: React.FC = () => {
 
   const getPlaybackLabel = () => {
     if (isAudioLoading) return '✨ GENERATING...';
+    if (isQuotaExceeded) return 'SERVICE BUSY';
     if (playbackState === 'playing') return 'PAUSE AUDIO';
     if (playbackState === 'paused') return 'RESUME AUDIO';
     return 'PREMIUM VOICE';
   };
-
-  const pinnedSessions = savedSessions.filter(s => s.isPinned);
-  const recentSessions = savedSessions.filter(s => !s.isPinned);
 
   const SessionItem: React.FC<{ session: StudySession }> = ({ session }) => (
     <div className="relative group/item mb-3">
@@ -588,7 +627,7 @@ const App: React.FC = () => {
               autoFocus
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
-              onBlur={handleRenameSubmit}
+              onBlur={() => handleRenameSubmit()}
               className={`w-full bg-transparent border-b outline-none text-sm font-bold ${isDark ? 'border-indigo-500 text-white' : 'border-[#5C6BC0] text-[#2D2D2D]'}`}
             />
           </form>
@@ -756,23 +795,33 @@ const App: React.FC = () => {
                       <div className={`flex items-center gap-2 p-1 rounded-2xl border backdrop-blur-md ${isDark ? 'bg-black/10 border-white/5' : 'bg-[#F4F4F9] border-[#E0E4F0]'}`}>
                         <button 
                           onClick={togglePremiumVoice} 
-                          disabled={isAudioLoading} 
+                          disabled={isAudioLoading || isQuotaExceeded} 
                           className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase relative overflow-hidden ${playbackState === 'playing' ? 'bg-[#5C6BC0] text-white shadow-lg' : isDark ? 'hover:bg-white/5 text-zinc-400' : 'bg-white hover:bg-slate-50 text-[#5C6BC0] border border-[#5C6BC0]/20'}`}
                         >
                           {isAudioLoading ? <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (playbackState === 'playing' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>)}
                           <span>{getPlaybackLabel()}</span>
                         </button>
-                        
+
                         <button 
-                          onClick={toggleActiveReader} 
-                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase ${isActiveReaderPlaying ? 'bg-[#5C6BC0] text-white shadow-lg' : isDark ? 'hover:bg-white/5 text-zinc-400' : 'bg-white hover:bg-slate-50 text-[#5C6BC0] border border-[#5C6BC0]/20'}`}
+                          onClick={handleToggleReader} 
+                          className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-3 text-[10px] font-black tracking-widest uppercase ${readerStatus === 'playing' ? 'bg-[#5C6BC0] text-white shadow-lg' : isDark ? 'hover:bg-white/5 text-zinc-400' : 'bg-white hover:bg-slate-50 text-[#5C6BC0] border border-[#5C6BC0]/20'}`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
-                          <span>READER</span>
+                          {readerStatus === 'playing' ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 011-1h2a1 1 0 110 2H8a1 1 0 01-1-1zm4 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+                          ) : (
+                            readerStatus === 'paused' ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                            )
+                          )}
+                          <span>
+                            {readerStatus === 'playing' ? 'PAUSE' : (readerStatus === 'paused' ? 'RESUME' : 'READER')}
+                          </span>
                         </button>
 
-                        {(playbackState !== 'idle' || isActiveReaderPlaying) && (
-                          <button onClick={stopAllPlayback} className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all">
+                        {(playbackState !== 'idle' || readerStatus !== 'idle') && (
+                          <button onClick={() => resetAudio(false)} className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all">
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
                           </button>
                         )}
@@ -781,7 +830,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className={`text-xl leading-relaxed relative z-10 whitespace-pre-wrap ${isDark ? 'text-zinc-200' : 'text-[#2D2D2D]'}`}>
-                    {renderSummaryText()}
+                    {renderSummaryWithHighlight()}
                   </div>
                 </section>
 
@@ -904,7 +953,6 @@ const App: React.FC = () => {
             </div>
           ) : null}
           
-          {/* Professional PDF Export Container */}
           <div 
             ref={exportRef} 
             dir={isRTL ? "rtl" : "ltr"}
@@ -933,7 +981,7 @@ const App: React.FC = () => {
                 Executive Summary
               </h2>
               <div style={{ fontSize: '11pt', lineHeight: '1.7', color: '#2D2D2D', whiteSpace: 'pre-wrap' }}>
-                {summaryText}
+                {studyData?.summary}
               </div>
             </div>
             
